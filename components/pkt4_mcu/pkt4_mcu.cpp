@@ -300,8 +300,8 @@ void PKT4MCUComponent::check_init_timeout_() {
 			ESP_LOGE(TAG, "MCU initialization failed after %d attempts!", MAX_INIT_RETRIES);
 			ESP_LOGE(TAG, "The MCU may not be responding. Try power cycling the device.");
 			this->init_pending_ = false;
-			// Keep trying periodically by setting up for watchdog to trigger re-init
-			this->last_packet_time_ = 0;
+			// Set last_packet_time_ to now so watchdog will trigger re-init after MCU_WATCHDOG_TIMEOUT_MS
+			this->last_packet_time_ = millis();
 			return;
 		}
 		
