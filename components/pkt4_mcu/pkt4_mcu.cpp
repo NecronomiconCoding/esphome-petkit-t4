@@ -9,6 +9,12 @@ static const char *const TAG = "pkt4_mcu";
 
 void PKT4MCUComponent::setup() {
 	ESP_LOGCONFIG(TAG, "Setting up T4 MCU...");
+	
+	// Initialize weight samples array
+	for (uint8_t i = 0; i < STABILITY_SAMPLES; i++) {
+		this->weight_samples_[i] = 0;
+	}
+	
 	this->init();
 }
 
@@ -20,7 +26,34 @@ void PKT4MCUComponent::dump_config() {
 	ESP_LOGCONFIG(TAG, "  Inited: %s", YESNO(this->inited_));
 }
 
-//void PKT4MCUComponent::update() {}
+void PKT4MCUComponent::update_weight_stability(uint32_t raw_weight) {
+	// Store sample in circular buffer
+	this->weight_samples_[this->sample_index_] = raw_weight;
+	this->sample_index_ = (this->sample_index_ + 1) % STABILITY_SAMPLES;
+	this->last_raw_weight_ = raw_weight;
+	
+	// Track sample count until buffer is full
+	if (this->sample_count_ < STABILITY_SAMPLES) {
+		this->sample_count_++;
+	}
+}
+
+bool PKT4MCUComponent::is_weight_stable() const {
+	// Check if we have enough samples (using count, not zero-check)
+	if (this->sample_count_ < STABILITY_SAMPLES) return false;
+	
+	// Calculate min and max
+	uint32_t min_val = this->weight_samples_[0];
+	uint32_t max_val = this->weight_samples_[0];
+	
+	for (uint8_t i = 1; i < STABILITY_SAMPLES; i++) {
+		if (this->weight_samples_[i] < min_val) min_val = this->weight_samples_[i];
+		if (this->weight_samples_[i] > max_val) max_val = this->weight_samples_[i];
+	}
+	
+	// Weight is stable if variance is within threshold
+	return (max_val - min_val) < STABILITY_THRESHOLD;
+}
 
 void PKT4MCUComponent::loop() {
 	if (this->available() >= offsetof(MCUPacket, payload) + sizeof(uint16_t) && (this->packet_.magic = (this->read() | (this->read() << 8))) == MAGIC) {
@@ -38,7 +71,6 @@ void PKT4MCUComponent::loop() {
 
 		if (this->packet_.pid != 0x0 &&
 		    this->packet_.pid != 0x1 &&
-		    //(this->packet_.pid != 0x1 || this->packet_.payload[0] != 0x81) &&
 		    this->packet_.pid != 0x2 &&
 		    this->packet_.pid != 0x3 &&
 		    this->packet_.pid != 0x7) {
@@ -114,6 +146,9 @@ void PKT4MCUComponent::loop() {
 								weight += data->weight[i];  // int32 fits a sum of 128x uint24, while a packet can fit only 61 of such.
 							weight /= data->count;
 
+							// Update stability tracking
+							this->update_weight_stability(weight);
+							
 							if (this->weight_sensor_) this->weight_sensor_->publish_state(weight);
 						}
 					}; break;
@@ -171,17 +206,6 @@ void PKT4MCUComponent::loop() {
 							.rate = {10, 10, 10},
 						};
 						this->send_(0x1, (uint8_t*)&buf_1, sizeof(buf_1));
-
-						/*struct __attribute__((packed)) {
-							uint8_t sid;
-							uint8_t samples;
-							uint16_t rate[2];
-						} buf_7 = {
-							.sid = 0,
-							.samples = 5,
-							.rate = {10, 10},
-						};
-						this->send_(0x7, (uint8_t*)&buf_7, sizeof(buf_7));*/
 
 						this->inited_ = true;
 						ESP_LOGI(TAG, "Inited ver hw: %d sw: %d", this->hw_ver_, this->sw_ver_);

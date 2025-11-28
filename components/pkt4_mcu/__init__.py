@@ -65,7 +65,7 @@ async def pkt4_mcu_deinit_to_code(config, action_id, template_arg, args):
 	cv.Optional(CONF_SPEED): cv.positive_not_null_int,
 	cv.Optional(CONF_DURATION): cv.positive_int,
 	cv.Optional(CONF_TIMEOUT): cv.positive_int,
-}), cv.vol.truth(lambda conf: all(bool((i in conf) ^ (conf[CONF_MODE] == 'stop')) for i in (CONF_SPEED, CONF_TIMEOUT)) and (conf[CONF_MODE] != 'sense' or CONF_DURATION in conf) and (conf[CONF_MODE] != 'stop' or CONF_DIRECTION not in conf or conf[CONF_DIRECTION] == 'stop')))) #, msg="This mode doesn't support the passed combination of parameters."))
+}), cv.vol.truth(lambda conf: all(bool((i in conf) ^ (conf[CONF_MODE] == 'stop')) for i in (CONF_SPEED, CONF_TIMEOUT)) and (conf[CONF_MODE] != 'sense' or CONF_DURATION in conf) and (conf[CONF_MODE] != 'stop' or CONF_DIRECTION not in conf or conf[CONF_DIRECTION] == 'stop'))))
 async def pkt4_mcu_motor_to_code(config, action_id, template_arg, args):
 	var = cg.new_Pvariable(action_id, template_arg)
 	await cg.register_parented(var, config[CONF_ID])

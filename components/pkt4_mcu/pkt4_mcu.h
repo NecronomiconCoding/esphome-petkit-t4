@@ -10,6 +10,11 @@ namespace pkt4_mcu {
 
 static const uint16_t MAGIC = 0xA55A;
 
+// Number of samples for weight stability detection
+static const uint8_t STABILITY_SAMPLES = 5;
+// Maximum variance for considering weight stable (raw units)
+static const uint32_t STABILITY_THRESHOLD = 500;
+
 struct __attribute__((packed)) MCUPacket {
 	uint16_t magic;
 	uint8_t len,
@@ -19,14 +24,21 @@ struct __attribute__((packed)) MCUPacket {
 	uint8_t payload[0xFF - 6];
 };
 
+// Calibration state machine
+enum class CalibrationState : uint8_t {
+	IDLE,
+	WAITING_STABLE,
+	TARE_COMPLETE
+};
+
 class PKT4MCUComponent: public Component, public uart::UARTDevice {
 	public:
 		void setup() override;
-		//void update() override;
 		void loop() override;
 		void dump_config() override;
 		float get_setup_priority() const { return setup_priority::LATE; }
 
+		// Sensor setters
 		void set_distance_sensor(sensor::Sensor *distance_sensor) { this->distance_sensor_ = distance_sensor; }
 		void set_weight_sensor(sensor::Sensor *weight_sensor) { this->weight_sensor_ = weight_sensor; }
 		void set_approach_sensor(binary_sensor::BinarySensor *approach_sensor) { this->approach_sensor_ = approach_sensor; }
@@ -37,9 +49,15 @@ class PKT4MCUComponent: public Component, public uart::UARTDevice {
 		void set_drum_level_sensor(binary_sensor::BinarySensor *drum_level_sensor) { this->drum_level_sensor_ = drum_level_sensor; }
 		void set_tray_sensor(binary_sensor::BinarySensor *tray_sensor) { this->tray_sensor_ = tray_sensor; }
 
+		// MCU control
 		void init(void);
 		void deinit(void);
 		void motor(uint8_t motor, uint8_t mode, uint8_t direction, uint8_t speed, uint16_t duration, uint16_t timeout);
+
+		// Calibration methods
+		bool is_weight_stable() const;
+		uint32_t get_raw_weight() const { return this->last_raw_weight_; }
+		CalibrationState get_calibration_state() const { return this->cal_state_; }
 
 	protected:
 		uint8_t hw_ver_,
@@ -48,6 +66,7 @@ class PKT4MCUComponent: public Component, public uart::UARTDevice {
 		MCUPacket packet_;
 		uint8_t seq_{0};
 
+		// Sensors
 		sensor::Sensor *distance_sensor_{nullptr},
 		               *weight_sensor_{nullptr};
 		binary_sensor::BinarySensor *approach_sensor_{nullptr},
@@ -58,7 +77,17 @@ class PKT4MCUComponent: public Component, public uart::UARTDevice {
 		                            *drum_level_sensor_{nullptr},
 		                            *tray_sensor_{nullptr};
 
+		// Weight stability tracking
+		uint32_t weight_samples_[STABILITY_SAMPLES]{0};
+		uint8_t sample_index_{0};
+		uint8_t sample_count_{0};  // Tracks how many samples collected (0 to STABILITY_SAMPLES)
+		uint32_t last_raw_weight_{0};
+		
+		// Calibration state
+		CalibrationState cal_state_{CalibrationState::IDLE};
+
 		void send_(uint8_t pid, uint8_t payload[], uint8_t len);
+		void update_weight_stability(uint32_t raw_weight);
 };
 
 template<typename... Ts> class InitAction: public Action<Ts...>, public Parented<PKT4MCUComponent> {
