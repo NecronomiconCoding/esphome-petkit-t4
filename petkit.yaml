@@ -2075,21 +2075,77 @@ script:
   - id: auto_clean
     then:
       - if:
-          all:
-            - switch.is_on: do_auto_clean
-            - switch.is_off: clean
-            - switch.is_off: maintenance
-            - binary_sensor.is_off: pet_inside
-            - binary_sensor.is_off: drum_level
-            - binary_sensor.is_off: tray_full
-            - lambda: return id(cleans_left) > 0;
+          condition:
+            switch.is_on: clean
           then:
-            - script.execute: clean_if_needed
-            - globals.set:
-                id: cleans_left
-                value: !lambda return id(cleans_left) - 1;
+            # Cleaning was interrupted by approach/pet, resume it
+            script.execute: resume_clean
           else:
-            script.execute: level_if_needed
+            - if:
+                all:
+                  - switch.is_on: do_auto_clean
+                  - switch.is_off: maintenance
+                  - binary_sensor.is_off: pet_inside
+                  - binary_sensor.is_off: drum_level
+                  - binary_sensor.is_off: tray_full
+                  - lambda: return id(cleans_left) > 0;
+                then:
+                  - script.execute: clean_if_needed
+                  - globals.set:
+                      id: cleans_left
+                      value: !lambda return id(cleans_left) - 1;
+                else:
+                  script.execute: level_if_needed
+
+  # Resume cleaning after approach/pet interruption
+  - id: resume_clean
+    then:
+      - if:
+          all:
+            - switch.is_on: clean
+            - binary_sensor.is_off: approach
+            - binary_sensor.is_off: pet_inside
+            - binary_sensor.is_off: cover
+            - binary_sensor.is_off: bin
+          then:
+            - if:
+                condition:
+                  binary_sensor.is_off: drum_up
+                then:
+                  # Drum hasn't reached top yet, continue UP movement
+                  - if:
+                      condition:
+                        binary_sensor.is_on: tray
+                      then:
+                        - logger.log:
+                            level: INFO
+                            tag: resume_clean
+                            format: "Resuming clean: continuing drum UP"
+                        - pkt4_mcu.motor:
+                            motor: drum
+                            direction: up
+                            speed: !lambda "return id(is_quiet_time) ? 50 : 100;"
+                            mode: time
+                            timeout: 1000
+                      else:
+                        # Tray not open, open it first (tray on_press will retrigger clean)
+                        - logger.log:
+                            level: INFO
+                            tag: resume_clean
+                            format: "Resuming clean: opening tray first"
+                        - pkt4_mcu.motor:
+                            motor: tray
+                            direction: open
+                            speed: !lambda "return id(is_quiet_time) ? 50 : 100;"
+                            mode: time
+                            timeout: 80
+                else:
+                  # Drum already at top, continue with DOWN movement via level_if_needed
+                  - logger.log:
+                      level: INFO
+                      tag: resume_clean
+                      format: "Resuming clean: drum at top, continuing DOWN via level_if_needed"
+                  - script.execute: level_if_needed
 
   - id: process_deferred_cleans
     mode: single  # Prevent multiple concurrent executions
