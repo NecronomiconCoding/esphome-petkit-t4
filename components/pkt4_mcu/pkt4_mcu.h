@@ -111,7 +111,7 @@ template<typename... Ts> class MotorAction: public Action<Ts...>, public Parente
 		void set_duration(uint16_t duration) { this->duration_ = duration; }
 		void set_timeout(uint16_t timeout) { this->timeout_ = timeout; }
 
-		void play(Ts... x) override { this->parent_->motor(this->motor_, this->mode_, this->direction_, this->speed_.value(x...), this->duration_, this->timeout_); }
+		void play(const Ts &... x) override { this->parent_->motor(this->motor_, this->mode_, this->direction_, this->speed_.value(x...), this->duration_, this->timeout_); }
 
 	protected:
 		uint8_t motor_, mode_, direction_;
