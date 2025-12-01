@@ -94,12 +94,12 @@ class PKT4MCUComponent: public Component, public uart::UARTDevice {
 
 template<typename... Ts> class InitAction: public Action<Ts...>, public Parented<PKT4MCUComponent> {
 	public:
-		void play(Ts... x) override { this->parent_->init(); }
+		void play(const Ts &... x) override { this->parent_->init(); }
 };
 
 template<typename... Ts> class DeinitAction: public Action<Ts...>, public Parented<PKT4MCUComponent> {
 	public:
-		void play(Ts... x) override { this->parent_->deinit(); }
+		void play(const Ts &... x) override { this->parent_->deinit(); }
 };
 
 template<typename... Ts> class MotorAction: public Action<Ts...>, public Parented<PKT4MCUComponent> {
