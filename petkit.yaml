@@ -8,7 +8,7 @@ esphome:
   friendly_name: Petkit T4
   project:
     name: egormanga.esphome-petkit-t4
-    version: 0.11.1
+    version: 0.11.2
   platformio_options:
     board_upload.maximum_size: 0x800000
   #on_boot:
@@ -857,12 +857,16 @@ switch:
       - pkt4_mcu.motor:
           motor: drum
           mode: stop
-      - pkt4_mcu.motor:
-          motor: tray
-          direction: close
-          speed: 5
-          mode: time
-          timeout: 80
+      - if:
+          condition:
+            - lambda: return (!id(level_needed));
+          then:
+            pkt4_mcu.motor:
+              motor: tray
+              direction: close
+              speed: 5
+              mode: time
+              timeout: 80
     on_turn_off:
       globals.set:
         id: cleaned_at
@@ -1144,6 +1148,7 @@ script:
       - delay: 0s  # yield
       - if:
           condition:
+            - lambda: return id(ota_state);
             - switch.is_on: block_movement
           then:
             - script.stop: level_if_needed
@@ -1216,6 +1221,7 @@ script:
       - delay: !lambda return id(clean_after).state*60000;
       - if:
           condition:
+            - lambda: return id(ota_state);
             - switch.is_on: block_movement
           then:
             - script.stop: clean_if_needed
