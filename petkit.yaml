@@ -8,7 +8,7 @@ esphome:
   friendly_name: Petkit T4
   project:
     name: egormanga.esphome-petkit-t4
-    version: 0.11.2
+    version: 0.11.3
   platformio_options:
     board_upload.maximum_size: 0x800000
   #on_boot:
@@ -209,12 +209,10 @@ display:
 
     if (id(ota_state)) it.image(it.get_width()/2, it.get_height()/2, id(icon_ota), ImageAlign::CENTER);
     else if (id(clean).state || (id(maintenance).state && millis() % 5000 < 1500) || (id(level_needed) && (!id(maintenance)))) {
-      BaseImage *icon;
-      if (id(approach).state) icon = id(icon_problem);
-      else if (id(clean).state) icon = id(icon_clean);
-      else if (id(maintenance).state) icon = id(icon_maintenance);
-      else if (id(level_needed)) icon = id(icon_level);
-      else return;  // wtf
+      BaseImage *icon = id(approach).state?id(icon_problem):
+                        id(clean).state?id(icon_clean):
+                        id(maintenance).state?id(icon_maintenance):
+                        id(level_needed)?id(icon_level):nullptr;
 
       it.start_clipping((it.get_width() - icon->get_width())/2 + (clip<icon->get_width()?clip:0), 0, clip>=icon->get_width()?((it.get_width() - icon->get_width())/2 + max(0, clip-icon->get_width())):it.get_width(), it.get_height());
       if ((clip += 2) > icon->get_width()*2) clip = 0;
@@ -389,16 +387,6 @@ sensor:
               value: !lambda return id(clean_times).state;
 
   - platform: template
-    id: pet_mass
-    unit_of_measurement: kg
-    lambda: |-
-      if (id(pet_inside).state) return id(pet_weight).state;
-      else return {};
-    update_interval: 1s
-    filters:
-      quantile:
-
-  - platform: template
     id: pet_body_mass
     name: Pet Body Mass
     icon: mdi:scale-bathroom
@@ -406,12 +394,19 @@ sensor:
     device_class: weight
     state_class: measurement
     accuracy_decimals: 1
-    update_interval: never
-    lambda: return (id(pet_mass).state - id(pet_weight).state);
+    update_interval: 1s
+    lambda: |-
+      if (id(pet_inside).state) return id(pet_weight).state;
+      else return {};
     filters:
+      - round: 2
+      - delta: 0  # deduplicate
+      - throttle: 10s
       - clamp:
-          min_value: 0
+          min_value: 1 #!lambda return id(pet_threshold).state;
+          ignore_out_of_range: true
       - filter_out: 0
+      - skip_initial: 1
 
   - platform: template
     name: Litter Mass
@@ -494,12 +489,7 @@ binary_sensor:
           then:
             script.execute: emergency_stop
       on_release:
-        - if:
-            condition:
-              lambda: return id(pet_weight).state*1000 > id(pet_threshold).state;
-            then:
-              component.update: pet_body_mass
-        - script.execute: auto_clean
+        script.execute: auto_clean
     bin:
       id: bin
       name: Bin
@@ -919,6 +909,9 @@ switch:
             globals.set:
               id: litter_mass
               value: !lambda return max(0.f, (max(0.f, id(weight).state) - id(waste_collected)));
+      - globals.set:
+          id: level_needed
+          value: 'true'
       - script.execute: level_if_needed
 
   - platform: template
@@ -1258,7 +1251,15 @@ script:
               id: cleans_left
               value: !lambda return id(cleans_left)-1;
         else:
-          script.execute: level_if_needed
+          if:
+            all:
+              - switch.is_on: clean
+              - switch.is_off: maintenance
+              - binary_sensor.is_off: pet_inside
+            then:
+              switch.turn_on: clean  # resume
+            else:
+              script.execute: level_if_needed
 
   - id: emergency_stop
     then:
