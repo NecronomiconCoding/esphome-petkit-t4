@@ -234,7 +234,6 @@ void PKT4MCUComponent::deinit() {
 }
 
 void PKT4MCUComponent::motor(uint8_t motor, uint8_t mode, uint8_t direction, uint8_t speed, uint16_t duration, uint16_t timeout) {
-
 	struct __attribute__((packed)) {
 		uint8_t motor,
 		        mode,
