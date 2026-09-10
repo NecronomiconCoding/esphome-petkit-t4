@@ -701,12 +701,8 @@ binary_sensor:
     pin:
       number: GPIO34
       inverted: true
-    on_double_click:
-      if:
-        condition:
-          switch.is_off: maintenance
-        then:
-          switch.turn_on: maintenance
+    on_click:
+      switch.turn_on: clean
     on_multi_click:
       timing:
         - ON for at least 2s
@@ -720,8 +716,25 @@ binary_sensor:
       number: GPIO0
       inverted: true
       ignore_strapping_warning: true
-    on_click:
-      button.press: level
+    on_multi_click:
+      # Wait briefly after release so the first click of a double-click does not
+      # finish maintenance or start leveling.
+      - timing:
+          - ON for at most 1s
+          - OFF for at least 400ms
+        then:
+          button.press: level
+      - timing:
+          - ON for at most 1s
+          - OFF for at most 400ms
+          - ON for at most 1s
+          - OFF for at least 200ms
+        then:
+          if:
+            condition:
+              switch.is_off: maintenance
+            then:
+              switch.turn_on: maintenance
 
   - platform: gpio
     name: MCU
