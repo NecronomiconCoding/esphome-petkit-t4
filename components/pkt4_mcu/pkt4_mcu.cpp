@@ -175,7 +175,7 @@ void PKT4MCUComponent::loop() {
 						};
 						this->send_(0x1, (uint8_t*)&buf_1, sizeof(buf_1));
 
-						/*struct __attribute__((packed)) {
+						struct __attribute__((packed)) {
 							uint8_t sid;
 							uint8_t samples;
 							uint16_t rate[2];
@@ -184,7 +184,7 @@ void PKT4MCUComponent::loop() {
 							.samples = 5,
 							.rate = {10, 10},
 						};
-						this->send_(0x7, (uint8_t*)&buf_7, sizeof(buf_7));*/
+						this->send_(0x7, (uint8_t*)&buf_7, sizeof(buf_7));
 
 						this->inited_ = true;
 						ESP_LOGI(TAG, "Inited ver hw: %d sw: %d", this->hw_ver_, this->sw_ver_);
