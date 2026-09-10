@@ -17,11 +17,13 @@ esphome:
 
 external_components:
   - source: ./components
-  - source: github://egormanga/esphome-bm8563
+  - source: github://egormanga/esphome-bm8563@94816db1ae7cbaa9991bd1c9c51e9cd430d136e8
 
 esp32:
   board: esp32dev
   flash_size: 8MB
+  framework:
+    type: arduino
 
 wifi:
   id: wifi_
