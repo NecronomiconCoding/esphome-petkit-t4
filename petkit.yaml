@@ -333,6 +333,12 @@ globals:
     type: float
     initial_value: 'NAN'
 
+  - id: tray_bounces
+    type: int
+
+  - id: tray_blocked
+    type: bool
+
   # Visit tracking: cleaning is only ever armed by a confirmed visit.
   - id: visit_active
     type: bool
@@ -829,7 +835,14 @@ binary_sensor:
           condition:
             switch.is_on: clean
           then:
-            switch.turn_on: clean  # restart
+            - lambda: |-
+                // A tray that keeps re-opening during one clean is bouncing off an
+                // obstruction (usually waste on the tray); flag it, keep retrying.
+                if (++id(tray_bounces) > 5 && !id(tray_blocked)) {
+                  id(tray_blocked) = true;
+                  ESP_LOGW("tray", "Tray blocked: re-opened %d times in this clean", id(tray_bounces));
+                }
+            - switch.turn_on: clean  # restart
           else:
             if:
               condition:
@@ -898,6 +911,12 @@ binary_sensor:
     device_class: problem
     entity_category: diagnostic
     lambda: return id(waste_collected) >= id(tray_capacity).state;
+
+  - platform: template
+    name: Tray Blocked
+    icon: mdi:tray-alert
+    device_class: problem
+    lambda: return id(tray_blocked);
 
   - platform: template
     name: Level Needed
@@ -984,6 +1003,7 @@ text_sensor:
       if (id(approach).state) return {"Someone nearby"};
       if (id(level_needed)) return {"Leveling"};
       if (id(tray_full).state) return {"Waste bin full"};
+      if (id(tray_blocked)) return {"Tray blocked"};
       if (id(clean_if_needed).is_running()) return {"Clean pending"};
       if (!id(weight_last_sample) || millis() - id(weight_last_sample) > 3000) return {"Scale offline"};
       return {"Ready"};
@@ -1156,6 +1176,10 @@ switch:
               speed: 100  # stock speed (was 5)
               mode: time
               timeout: 80
+    on_turn_on:
+      - lambda: |-
+          id(tray_bounces) = 0;
+          id(tray_blocked) = false;  // stays visible until the next clean starts
     on_turn_off:
       - globals.set:
           id: cleaned_at

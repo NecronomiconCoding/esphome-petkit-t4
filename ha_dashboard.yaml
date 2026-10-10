@@ -28,6 +28,9 @@ views:
             entity: binary_sensor.petkit_t4_tray_full
             name: Waste bin full
           - type: tile
+            entity: binary_sensor.guest_bathroom_petkit_t4_tray_blocked
+            name: Tray blocked
+          - type: tile
             entity: binary_sensor.petkit_t4_level_needed
             name: Level needed
           - type: tile
