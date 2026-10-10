@@ -407,7 +407,10 @@ sensor:
               - 256 -> 5
               - 32 -> 10
               #- 31 -> inf
+        # The cubic fit extrapolates far below zero outside its datapoints
+        # (raw > 8192 logged down to -3673 cm), so clamp both ends.
         - clamp:
+            min_value: 0
             max_value: 10
         - delta: 0.5
     weight:
@@ -526,6 +529,8 @@ sensor:
     lambda: |-
       if (!id(weight_last_sample) || millis() - id(weight_last_sample) > 3000 ||
           !std::isfinite(id(weight).state)) return NAN;
+      // Litter poured in during maintenance is not a pet (pet_inside ignores it too).
+      if (id(maintenance).state) return NAN;
       return max(0.f, id(weight).state - id(litter_mass) - id(waste_collected));
 
   - platform: template
@@ -878,7 +883,9 @@ binary_sensor:
           id(visit_confirmed) = true;
           id(last_visit_duration) = duration;
           id(last_visit_duration_sensor).update();
-          id(pet_body_mass).publish_state(mass);
+          // No house cat weighs more than 15 kg: that is a person leaning on the unit.
+          if (mass <= 15) id(pet_body_mass).publish_state(mass);
+          else ESP_LOGW("visit", "Implausible body mass %.1f kg not published", mass);
           ESP_LOGI("visit", "Confirmed visit: %.0f s, pet %.2f kg", duration, mass);
       - script.execute:
           id: auto_clean
