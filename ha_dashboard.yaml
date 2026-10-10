@@ -1,0 +1,131 @@
+# Home Assistant dashboard for the Petkit T4 (ESPHome firmware 0.12.0).
+# Entity ids assume the default ESPHome naming (device "petkit-t4",
+# friendly name "Petkit T4"). Paste via Dashboard → ⋮ → Edit → Raw config editor.
+title: Cat Toilet
+views:
+  - title: Cat Toilet
+    path: cat-toilet
+    icon: mdi:cat
+    type: sections
+    max_columns: 3
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Now
+            icon: mdi:cat
+          - type: tile
+            entity: sensor.guest_bathroom_petkit_t4_status
+            name: Status
+            grid_options: {columns: 12}
+          - type: tile
+            entity: binary_sensor.petkit_t4_pet_inside
+            name: Cat inside
+          - type: tile
+            entity: binary_sensor.petkit_t4_clean_pending
+            name: Clean pending
+          - type: tile
+            entity: binary_sensor.petkit_t4_tray_full
+            name: Waste bin full
+          - type: tile
+            entity: binary_sensor.petkit_t4_level_needed
+            name: Level needed
+          - type: tile
+            entity: switch.petkit_t4_clean
+            name: Clean now
+            features:
+              - type: toggle
+          - type: tile
+            entity: button.petkit_t4_level
+            name: Level
+          - type: tile
+            entity: switch.petkit_t4_maintenance
+            name: Maintenance
+            features:
+              - type: toggle
+          - type: tile
+            entity: switch.petkit_t4_auto_clean
+            name: Auto clean
+            features:
+              - type: toggle
+
+      - type: grid
+        cards:
+          - type: heading
+            heading: Cat
+            icon: mdi:paw
+          - type: tile
+            entity: sensor.guest_bathroom_petkit_t4_visits_today
+            name: Visits today
+          - type: tile
+            entity: sensor.petkit_t4_pet_body_mass
+            name: Body mass
+          - type: tile
+            entity: sensor.guest_bathroom_petkit_t4_last_visit_duration
+            name: Last visit
+          - type: tile
+            entity: sensor.guest_bathroom_petkit_t4_last_visit_waste
+            name: Last visit waste
+          - type: statistics-graph
+            title: Body mass (30 days)
+            entities:
+              - sensor.petkit_t4_pet_body_mass
+            stat_types: [mean]
+            days_to_show: 30
+            period: day
+            chart_type: line
+            grid_options: {columns: 12}
+          - type: statistics-graph
+            title: Visits per day
+            entities:
+              - entity: sensor.guest_bathroom_petkit_t4_visits_total
+                name: Visits
+            stat_types: [change]
+            days_to_show: 14
+            period: day
+            chart_type: bar
+            grid_options: {columns: 12}
+
+      - type: grid
+        cards:
+          - type: heading
+            heading: Litter & waste
+            icon: mdi:delete-variant
+          - type: gauge
+            entity: sensor.petkit_t4_waste_collected
+            name: Waste bin
+            min: 0
+            max: 1000
+            needle: true
+            severity: {green: 0, yellow: 600, red: 850}
+            grid_options: {columns: 12}
+          - type: tile
+            entity: sensor.petkit_t4_litter_load_relative_to_baseline
+            name: Litter vs baseline
+          - type: tile
+            entity: sensor.petkit_t4_litter_discarded
+            name: Litter discarded
+          - type: history-graph
+            title: Last 24 h
+            hours_to_show: 24
+            entities:
+              - entity: binary_sensor.petkit_t4_pet_inside
+                name: Cat inside
+              - entity: switch.petkit_t4_clean
+                name: Cleaning
+              - entity: sensor.petkit_t4_pet_weight
+                name: Pet weight
+            grid_options: {columns: 12}
+          - type: entities
+            title: Settings
+            state_color: true
+            entities:
+              - entity: number.petkit_t4_clean_after
+              - entity: number.petkit_t4_clean_threshold
+              - entity: number.petkit_t4_clean_times
+              - entity: number.guest_bathroom_petkit_t4_min_visit_duration
+              - entity: number.petkit_t4_pet_threshold
+              - entity: number.petkit_t4_litter_threshold
+              - entity: number.petkit_t4_tray_capacity
+              - entity: button.petkit_t4_all_litter_removed
+            grid_options: {columns: 12}
