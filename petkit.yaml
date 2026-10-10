@@ -573,6 +573,7 @@ sensor:
     lambda: return id(last_visit_gain) * 1000;
 
   - platform: template
+    id: visits_today_sensor
     name: Visits Today
     icon: mdi:cat
     state_class: total
@@ -581,6 +582,7 @@ sensor:
     lambda: return id(visits_today);
 
   - platform: template
+    id: visits_total_sensor
     name: Visits Total
     icon: mdi:counter
     state_class: total_increasing
@@ -896,6 +898,8 @@ binary_sensor:
           id(visit_confirmed) = true;
           id(last_visit_duration) = duration;
           id(last_visit_duration_sensor).update();
+          id(visits_today_sensor).update();
+          id(visits_total_sensor).update();
           // No house cat weighs more than 15 kg: that is a person leaning on the unit.
           if (mass <= 15) id(pet_body_mass).publish_state(mass);
           else ESP_LOGW("visit", "Implausible body mass %.1f kg not published", mass);
