@@ -53,6 +53,11 @@ adds unconditional repeats after that first clean. Emptying the bin while a
 clean is pending keeps it pending. Maintenance, **All Litter Removed** or
 turning Auto Clean off cancels it.
 
+If the tray keeps re-opening during a clean (usually waste on the tray), the
+clean is allowed to finish, **Tray Blocked** turns on, and automatic cleaning is
+paused, even across reboots, until you start a clean yourself or press **Tray
+Cleared**. Pending visits are kept and cleaned once the block is lifted.
+
 ## Automatic weight zeroing
 
 There is no repeated zero-button / known-weight calibration routine. The firmware

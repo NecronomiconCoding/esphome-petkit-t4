@@ -31,6 +31,9 @@ views:
             entity: binary_sensor.guest_bathroom_petkit_t4_tray_blocked
             name: Tray blocked
           - type: tile
+            entity: button.guest_bathroom_petkit_t4_tray_cleared
+            name: Tray cleared
+          - type: tile
             entity: binary_sensor.petkit_t4_level_needed
             name: Level needed
           - type: tile

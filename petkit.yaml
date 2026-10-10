@@ -336,8 +336,11 @@ globals:
   - id: tray_bounces
     type: int
 
+  # Set when the tray bounces during a clean (waste on the tray). Blocks automatic
+  # cleaning until the owner starts a clean manually or presses Tray Cleared.
   - id: tray_blocked
     type: bool
+    restore_value: true
 
   # Visit tracking: cleaning is only ever armed by a confirmed visit.
   - id: visit_active
@@ -842,7 +845,8 @@ binary_sensor:
                 // obstruction (usually waste on the tray); flag it, keep retrying.
                 if (++id(tray_bounces) > 5 && !id(tray_blocked)) {
                   id(tray_blocked) = true;
-                  ESP_LOGW("tray", "Tray blocked: re-opened %d times in this clean", id(tray_bounces));
+                  ESP_LOGW("tray", "Tray blocked: re-opened %d times; finishing this clean, "
+                           "then pausing automatic cleaning", id(tray_bounces));
                 }
             - switch.turn_on: clean  # restart
           else:
@@ -1007,7 +1011,7 @@ text_sensor:
       if (id(approach).state) return {"Someone nearby"};
       if (id(level_needed)) return {"Leveling"};
       if (id(tray_full).state) return {"Waste bin full"};
-      if (id(tray_blocked)) return {"Tray blocked"};
+      if (id(tray_blocked)) return {"Tray blocked - auto clean paused"};
       if (id(clean_if_needed).is_running()) return {"Clean pending"};
       if (!id(weight_last_sample) || millis() - id(weight_last_sample) > 3000) return {"Scale offline"};
       return {"Ready"};
@@ -1062,6 +1066,17 @@ button:
                   id: level_needed
                   value: 'true'
               - script.execute: level_if_needed
+
+  - platform: template
+    name: Tray Cleared
+    icon: mdi:tray-remove
+    on_press:
+      - lambda: |-
+          if (id(tray_blocked)) ESP_LOGI("tray", "Tray block cleared by owner");
+          id(tray_blocked) = false;
+      - script.execute:
+          id: auto_clean
+          new_visit: false
 
   - platform: template
     name: All Litter Removed
@@ -1182,8 +1197,11 @@ switch:
               timeout: 80
     on_turn_on:
       - lambda: |-
+          // Automatic cleans cannot start while blocked, so a clean starting now
+          // was started by the owner after clearing the tray.
+          if (id(tray_blocked)) ESP_LOGI("tray", "Tray block cleared by a manual clean");
           id(tray_bounces) = 0;
-          id(tray_blocked) = false;  // stays visible until the next clean starts
+          id(tray_blocked) = false;
     on_turn_off:
       - globals.set:
           id: cleaned_at
@@ -1603,6 +1621,10 @@ script:
       - if:
           condition:
             lambda: |-
+              if (id(tray_blocked)) {
+                ESP_LOGW("clean", "Automatic clean paused: tray blocked (visit stays pending)");
+                return false;
+              }
               if (id(visit_confirmed)) {
                 // Weight gained since just before the visit (unclamped, waste only).
                 const float gain = id(weight).state - id(visit_baseline);
@@ -1645,6 +1667,7 @@ script:
           - switch.is_off: maintenance
           - binary_sensor.is_off: pet_inside
           - binary_sensor.is_off: tray_full
+          - lambda: return !id(tray_blocked);
           - lambda: return id(visit_confirmed) || id(forced_cleans) > 0;
           # A new visit restarts the countdown; other events only start it.
           - lambda: return new_visit || !id(clean_if_needed).is_running();
