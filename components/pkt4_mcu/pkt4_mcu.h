@@ -1,6 +1,7 @@
 #pragma once
 
 #include <esphome/core/component.h>
+#include <functional>
 #include <esphome/components/binary_sensor/binary_sensor.h>
 #include <esphome/components/sensor/sensor.h>
 #include <esphome/components/uart/uart.h>
@@ -37,7 +38,9 @@ class PKT4MCUComponent: public Component, public uart::UARTDevice {
 		void set_drum_level_sensor(binary_sensor::BinarySensor *drum_level_sensor) { this->drum_level_sensor_ = drum_level_sensor; }
 		void set_tray_sensor(binary_sensor::BinarySensor *tray_sensor) { this->tray_sensor_ = tray_sensor; }
 
-		void init(void);
+		void set_movement_allowed(std::function<bool()> fn) { movement_allowed_ = fn; }
+        bool motors_idle() const { return !motor_active_[0] && !motor_active_[1]; }
+        void init(void);
 		void deinit(void);
 		void motor(uint8_t motor, uint8_t mode, uint8_t direction, uint8_t speed, uint16_t duration, uint16_t timeout);
 
@@ -45,6 +48,14 @@ class PKT4MCUComponent: public Component, public uart::UARTDevice {
 		uint8_t hw_ver_,
 		        sw_ver_;
 		bool inited_{false};
+        std::function<bool()> movement_allowed_;
+        bool motor_active_[2]{false, false};
+        uint32_t motor_started_[2]{0, 0};
+        uint32_t motor_window_[2]{0, 0};
+        uint8_t stop_retries_[2]{0, 0};
+        uint32_t stop_sent_[2]{0, 0};
+        size_t rx_size_{0};
+        uint32_t rx_last_{0};
 		MCUPacket packet_;
 		uint8_t seq_{0};
 

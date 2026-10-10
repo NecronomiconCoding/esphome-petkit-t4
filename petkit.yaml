@@ -6,9 +6,24 @@ dashboard_import:
 esphome:
   name: petkit-t4
   friendly_name: Petkit T4
+  on_boot:
+    priority: 500
+    then:
+      - lambda: |-
+          id(mcu).set_movement_allowed([]() {
+            return !id(ota_state) && !id(block_movement).state &&
+                id(approach).has_state() && !id(approach).state &&
+                id(cover).has_state() && !id(cover).state &&
+                id(weight_last_sample) && millis() - id(weight_last_sample) < 3000 &&
+                std::isfinite(id(weight).state) && std::isfinite(id(weight_scale)) &&
+                id(weight_scale) < 0 &&
+                id(weight).state - id(litter_mass) - id(waste_collected) < id(pet_threshold).state;
+          });
+  includes:
+    - weight_autozero.h
   project:
     name: egormanga.esphome-petkit-t4
-    version: 0.11.3
+    version: 0.12.0
   platformio_options:
     board_upload.maximum_size: 0x800000
   #on_boot:
@@ -17,11 +32,12 @@ esphome:
 
 external_components:
   - source: ./components
-  - source: github://egormanga/esphome-bm8563
 
 esp32:
   board: esp32dev
   flash_size: 8MB
+  framework:
+    type: arduino
 
 wifi:
   id: wifi_
@@ -48,6 +64,9 @@ ota:
   platform: esphome
   password: !secret ota_password
   on_state_change:
+    - pkt4_mcu.motor:
+        motor: tray
+        mode: stop
     - pkt4_mcu.motor:
         motor: drum
         mode: stop
@@ -109,11 +128,28 @@ spi:
   clk_pin: GPIO18
 
 time:
-  - platform: bm8563
+  # BM8563 is register-compatible with the PCF8563; the core driver handles the
+  # day/weekday registers correctly (the old bm8563 component swapped them).
+  - platform: pcf8563
+    id: rtc
+    address: 0x51
+    on_time:
+      - seconds: 0
+        minutes: 0
+        hours: 0
+        then:
+          - globals.set:
+              id: visits_today
+              value: '0'
 
   - platform: homeassistant
     on_time_sync:
-      bm8563.write_time:
+      pcf8563.write_time:
+
+  # Fallback when Home Assistant is not connected; keeps the RTC valid.
+  - platform: sntp
+    on_time_sync:
+      pcf8563.write_time:
 
 rtttl:
   output: beeper
@@ -208,7 +244,7 @@ display:
     static uint16_t clip = 0;
 
     if (id(ota_state)) it.image(it.get_width()/2, it.get_height()/2, id(icon_ota), ImageAlign::CENTER);
-    else if (id(clean).state || (id(maintenance).state && millis() % 5000 < 1500) || (id(level_needed) && (!id(maintenance)))) {
+    else if (id(clean).state || (id(maintenance).state && millis() % 5000 < 1500) || (id(level_needed) && (!id(maintenance).state))) {
       BaseImage *icon = id(approach).state?id(icon_problem):
                         id(clean).state?id(icon_clean):
                         id(maintenance).state?id(icon_maintenance):
@@ -226,7 +262,7 @@ display:
       it.image(it.get_width()/2, it.get_height()/2, id(icon_tray_full), ImageAlign::CENTER);
     } else if (id(clean_pending).state && millis() % 5000 < 2000) {
       it.image(it.get_width()/2, it.get_height()/2, id(icon_auto_clean), ImageAlign::CENTER);
-    } else if (id(maintenance).state || id(pet_weight).state > 0.01f) {
+    } else if (id(maintenance).state || id(pet_inside).state) {
       it.image(it.get_width()/2, (it.get_height() - id(icon_weight).get_height())/2, id(icon_weight), ImageAlign::CENTER);
       it.printf(it.get_width()/2, it.get_height(), id(font_weight), TextAlign::BOTTOM_CENTER, "%.2f", id(maintenance).state?id(weight).state-id(waste_collected):id(pet_weight).state);
     } else if (id(cover).state || id(bin).state || id(approach).state) {
@@ -253,6 +289,9 @@ globals:
     initial_value: '7975680'
     restore_value: true
 
+  - id: weight_last_sample
+    type: uint32_t
+
   - id: weight_scale
     type: float
     initial_value: '-1/65536.f'
@@ -270,11 +309,76 @@ globals:
     type: float
     restore_value: true
 
+  # Persisted so a reboot mid-clean does not reclassify tray waste as pet weight.
   - id: waste_pending
     type: float
+    restore_value: true
 
-  - id: cleans_left
+  # Commissioning zero; autozero bounds total drift against it across reboots.
+  # 0 = not yet known (adopt the current zero on first boot).
+  - id: weight_zero_anchor
     type: int
+    restore_value: true
+
+  # Last stable idle weight (kg) sampled while nothing is happening.
+  - id: idle_weight
+    type: float
+    initial_value: 'NAN'
+
+  - id: idle_prev
+    type: float
+    initial_value: 'NAN'
+
+  - id: bin_pre
+    type: float
+    initial_value: 'NAN'
+
+  # Visit tracking: cleaning is only ever armed by a confirmed visit.
+  - id: visit_active
+    type: bool
+
+  - id: visit_start
+    type: uint32_t
+
+  - id: visit_prev
+    type: float
+
+  - id: visit_sum
+    type: float
+
+  - id: visit_samples
+    type: int
+
+  - id: visit_baseline  # idle weight before the first visit of a pending clean
+    type: float
+    restore_value: true
+
+  - id: visit_ref  # idle weight just before the current visit
+    type: float
+
+  - id: visit_confirmed
+    type: bool
+    restore_value: true
+
+  - id: forced_cleans
+    type: int
+    restore_value: true
+
+  - id: visits_today
+    type: int
+    restore_value: true
+
+  - id: visits_total
+    type: int
+    restore_value: true
+
+  - id: last_visit_duration
+    type: float
+    initial_value: 'NAN'
+
+  - id: last_visit_gain
+    type: float
+    initial_value: 'NAN'
 
   - id: level_needed
     type: bool
@@ -286,6 +390,7 @@ globals:
     type: long
 
 pkt4_mcu:
+  id: mcu
 
 sensor:
   - platform: pkt4_mcu
@@ -312,6 +417,27 @@ sensor:
       entity_category: diagnostic
       disabled_by_default: true
       filters:
+        - lambda: |-
+            if (!std::isfinite(x) || x <= 0 || x >= 16777215) return NAN;
+            id(weight_last_sample) = millis();
+            if (!id(weight_zero_anchor)) id(weight_zero_anchor) = id(weight_zero);
+            static petkit::AutoZero zero;
+            const bool quiet = id(approach).has_state() && !id(approach).state &&
+                id(cover).has_state() && !id(cover).state &&
+                id(bin).has_state() && !id(bin).state &&
+                id(tray).has_state() && !id(tray).state &&
+                id(drum_level).has_state() && !id(drum_level).state &&
+                !id(clean).state && !id(maintenance).state && !id(level_needed) &&
+                !id(ota_state) && !id(clean_if_needed).is_running() &&
+                !id(pet_inside).state && id(mcu).motors_idle();
+            int adjusted = id(weight_zero);
+            if (zero.update(millis(), x, id(weight_scale), id(weight_zero),
+                            id(weight_zero_anchor), id(litter_mass) + id(waste_collected), quiet,
+                            id(clean_threshold).state / 1000.f, adjusted)) {
+              id(weight_zero) = adjusted;
+              ESP_LOGI("weight", "Automatic zero drift correction applied");
+            }
+            return x;
         - offset: !lambda return -id(weight_zero);
         - multiply: !lambda return id(weight_scale);
         - delta: 0.005
@@ -365,6 +491,30 @@ sensor:
                 rtttl.play: :d=8,o=6,b=100:g,p,g,p,4g
 
   - platform: template
+    name: Weight Raw
+    entity_category: diagnostic
+    disabled_by_default: true
+    accuracy_decimals: 0
+    update_interval: 1s
+    lambda: return id(weight).raw_state;
+
+  - platform: template
+    name: Weight Zero Offset
+    entity_category: diagnostic
+    disabled_by_default: true
+    accuracy_decimals: 0
+    update_interval: 5s
+    lambda: return id(weight_zero);
+
+  - platform: template
+    name: Weight Scale Factor
+    entity_category: diagnostic
+    disabled_by_default: true
+    accuracy_decimals: 8
+    update_interval: 5s
+    lambda: return id(weight_scale);
+
+  - platform: template
     id: pet_weight
     name: Pet Weight
     icon: mdi:paw
@@ -373,18 +523,10 @@ sensor:
     state_class: measurement
     accuracy_decimals: 2
     update_interval: 1s
-    lambda: return (max(0.f, id(weight).state) - id(litter_mass) - id(waste_collected));
-    on_value_range:
-      above: !lambda return id(clean_threshold).state/1000.f;  # it's non-dumped waste
-      below: !lambda return id(pet_threshold).state;  # not the actual pet inside
-      then:
-        if:
-          condition:
-            lambda: return id(cleans_left) <= 0;
-          then:
-            globals.set:
-              id: cleans_left
-              value: !lambda return id(clean_times).state;
+    lambda: |-
+      if (!id(weight_last_sample) || millis() - id(weight_last_sample) > 3000 ||
+          !std::isfinite(id(weight).state)) return NAN;
+      return max(0.f, id(weight).state - id(litter_mass) - id(waste_collected));
 
   - platform: template
     id: pet_body_mass
@@ -393,23 +535,50 @@ sensor:
     unit_of_measurement: kg
     device_class: weight
     state_class: measurement
-    accuracy_decimals: 1
-    update_interval: 1s
-    lambda: |-
-      if (id(pet_inside).state) return id(pet_weight).state;
-      else return {};
-    filters:
-      - round: 2
-      - delta: 0  # deduplicate
-      - throttle: 10s
-      - clamp:
-          min_value: 1 #!lambda return id(pet_threshold).state;
-          ignore_out_of_range: true
-      - filter_out: 0
-      - skip_initial: 1
+    accuracy_decimals: 2
+    update_interval: never  # published at the end of each confirmed visit
+    lambda: return {};
 
   - platform: template
-    name: Litter Mass
+    id: last_visit_duration_sensor
+    name: Last Visit Duration
+    icon: mdi:timer-sand
+    unit_of_measurement: s
+    device_class: duration
+    state_class: measurement
+    accuracy_decimals: 0
+    update_interval: never
+    lambda: return id(last_visit_duration);
+
+  - platform: template
+    id: last_visit_waste
+    name: Last Visit Waste
+    icon: mdi:emoticon-poop
+    unit_of_measurement: g
+    device_class: weight
+    state_class: measurement
+    accuracy_decimals: 0
+    update_interval: never
+    lambda: return id(last_visit_gain) * 1000;
+
+  - platform: template
+    name: Visits Today
+    icon: mdi:cat
+    state_class: total
+    accuracy_decimals: 0
+    update_interval: 10s
+    lambda: return id(visits_today);
+
+  - platform: template
+    name: Visits Total
+    icon: mdi:counter
+    state_class: total_increasing
+    accuracy_decimals: 0
+    update_interval: 60s
+    lambda: return id(visits_total);
+
+  - platform: template
+    name: Litter Load Relative to Baseline
     icon: mdi:bucket
     unit_of_measurement: g
     device_class: weight
@@ -445,7 +614,7 @@ sensor:
     entity_category: diagnostic
     disabled_by_default: true
     update_interval: 1s
-    lambda: return id(cleans_left);
+    lambda: 'return id(forced_cleans) + (id(visit_confirmed) ? 1 : 0);'
 
   - platform: adc
     name: 3V3
@@ -489,12 +658,15 @@ binary_sensor:
           then:
             script.execute: emergency_stop
       on_release:
-        script.execute: auto_clean
+        script.execute:
+          id: auto_clean
+          new_visit: false
     bin:
       id: bin
       name: Bin
       entity_category: diagnostic
       on_press:
+        - lambda: id(bin_pre) = id(weight).state;
         - if:
             condition:
               switch.is_off: maintenance
@@ -520,16 +692,23 @@ binary_sensor:
             all:
               - binary_sensor.is_off: bin
               - binary_sensor.is_off: cover
+              - binary_sensor.is_off: approach
+              - binary_sensor.is_off: pet_inside
+              - lambda: return id(weight_last_sample) && millis() - id(weight_last_sample) < 3000 && std::isfinite(id(weight).state);
             then:
+              - lambda: |-
+                  // Emptying the bin must not cancel a clean that is still pending.
+                  if (id(visit_confirmed) && std::isfinite(id(bin_pre)))
+                    id(visit_baseline) -= id(bin_pre) - id(weight).state;
               - globals.set:
                   id: litter_discarded
-                  value: !lambda return (id(litter_discarded) + max(0.f, (id(litter_mass) - max(0.f, id(weight).state))));
+                  value: !lambda return (id(litter_discarded) + max(0.f, (id(litter_mass) - id(weight).state)));
               - globals.set:
                   id: waste_collected
-                  value: !lambda return max(0.f, (max(0.f, id(weight).state) - id(litter_mass)));
+                  value: !lambda return max(0.f, (id(weight).state - id(litter_mass)));
               - globals.set:
                   id: litter_mass
-                  value: !lambda return max(0.f, (max(0.f, id(weight).state) - id(waste_collected)));
+                  value: !lambda return (id(weight).state - id(waste_collected));
               - script.execute: level_if_needed
     cover:
       id: cover
@@ -555,6 +734,7 @@ binary_sensor:
         - switch.turn_off: motor_drum_up # XXX
         - if:
             all:
+              - switch.is_on: clean  # maintenance also drives the drum up
               - binary_sensor.is_off: pet_inside
               - binary_sensor.is_off: cover
             then:
@@ -626,7 +806,9 @@ binary_sensor:
         - globals.set:
             id: level_needed
             value: 'false'
-        - script.execute: auto_clean
+        - script.execute:
+            id: auto_clean
+            new_visit: false
     tray:
       id: tray
       name: Tray
@@ -667,9 +849,40 @@ binary_sensor:
     filters:
       delayed_off: 5s
     on_press:
-      script.execute: emergency_stop
+      - script.execute: emergency_stop
+      - lambda: |-
+          // emergency_stop has halted the drum, so readings are valid even mid-clean.
+          id(visit_active) = std::isfinite(id(idle_weight));
+          if (!id(visit_active)) ESP_LOGW("visit", "No settled idle weight yet; visit not tracked");
+          id(visit_start) = millis();
+          id(visit_prev) = NAN;
+          id(visit_sum) = 0;
+          id(visit_samples) = 0;
+          id(visit_ref) = id(idle_weight);
+          // Keep the earliest baseline while a clean is still pending, so a
+          // second visit cannot hide the first visit's waste.
+          if (id(visit_active) && !id(visit_confirmed)) id(visit_baseline) = id(idle_weight);
     on_release:
-      script.execute: auto_clean
+      - lambda: |-
+          if (!id(visit_active)) return;
+          id(visit_active) = false;
+          // delayed_off adds 5 s after the pet actually left.
+          const float duration = (millis() - id(visit_start)) / 1000.f - 5;
+          if (duration < id(min_visit).state || id(visit_samples) < 3) {
+            ESP_LOGI("visit", "Ignored short/unstable load: %.0f s, %d stable samples", duration, id(visit_samples));
+            return;
+          }
+          const float mass = id(visit_sum) / id(visit_samples) - id(visit_ref);
+          id(visits_today) += 1;
+          id(visits_total) += 1;
+          id(visit_confirmed) = true;
+          id(last_visit_duration) = duration;
+          id(last_visit_duration_sensor).update();
+          id(pet_body_mass).publish_state(mass);
+          ESP_LOGI("visit", "Confirmed visit: %.0f s, pet %.2f kg", duration, mass);
+      - script.execute:
+          id: auto_clean
+          new_visit: true
 
   - platform: template
     id: tray_full
@@ -701,12 +914,8 @@ binary_sensor:
     pin:
       number: GPIO34
       inverted: true
-    on_double_click:
-      if:
-        condition:
-          switch.is_off: maintenance
-        then:
-          switch.turn_on: maintenance
+    on_click:
+      switch.turn_on: clean
     on_multi_click:
       timing:
         - ON for at least 2s
@@ -720,8 +929,25 @@ binary_sensor:
       number: GPIO0
       inverted: true
       ignore_strapping_warning: true
-    on_click:
-      button.press: level
+    on_multi_click:
+      # Wait briefly after release so the first click of a double-click does not
+      # finish maintenance or start leveling.
+      - timing:
+          - ON for at most 1s
+          - OFF for at least 400ms
+        then:
+          button.press: level
+      - timing:
+          - ON for at most 1s
+          - OFF for at most 400ms
+          - ON for at most 1s
+          - OFF for at least 200ms
+        then:
+          if:
+            condition:
+              switch.is_off: maintenance
+            then:
+              switch.turn_on: maintenance
 
   - platform: gpio
     name: MCU
@@ -735,6 +961,55 @@ binary_sensor:
       pkt4_mcu.init:
     on_release:  # reset
       pkt4_mcu.deinit:
+
+text_sensor:
+  - platform: template
+    name: Status
+    icon: mdi:information-outline
+    update_interval: 2s
+    lambda: |-
+      if (id(ota_state)) return {"Updating"};
+      if (id(block_movement).state) return {"Movement blocked"};
+      if (id(pet_inside).state) return {"Cat inside"};
+      if (id(cover).state || id(bin).state) return {"Cover or bin removed"};
+      if (id(maintenance).state) return {"Maintenance"};
+      if (id(clean).state) return {"Cleaning"};
+      if (id(approach).state) return {"Someone nearby"};
+      if (id(level_needed)) return {"Leveling"};
+      if (id(tray_full).state) return {"Waste bin full"};
+      if (id(clean_if_needed).is_running()) return {"Clean pending"};
+      if (!id(weight_last_sample) || millis() - id(weight_last_sample) > 3000) return {"Scale offline"};
+      return {"Ready"};
+
+interval:
+  - interval: 1s
+    then:
+      - lambda: |-
+          const bool fresh = id(weight_last_sample) && millis() - id(weight_last_sample) < 3000 &&
+              std::isfinite(id(weight).state);
+          if (!fresh) { id(idle_prev) = NAN; return; }
+          const float w = id(weight).state;
+          if (id(pet_inside).state) {
+            id(idle_prev) = NAN;
+            if (!id(visit_active)) return;
+            // Average only steady readings with the whole pet on the scale.
+            if (std::isfinite(id(visit_prev)) && fabsf(w - id(visit_prev)) < 0.15f &&
+                w - id(visit_ref) >= id(pet_threshold).state) {
+              id(visit_sum) += w;
+              id(visit_samples) += 1;
+            }
+            id(visit_prev) = w;
+            return;
+          }
+          const bool quiet = id(approach).has_state() && !id(approach).state &&
+              !id(cover).state && !id(bin).state && id(tray).has_state() && !id(tray).state &&
+              id(drum_level).has_state() && !id(drum_level).state &&
+              !id(clean).state && !id(maintenance).state && !id(level_needed) &&
+              !id(ota_state) && id(mcu).motors_idle();
+          if (!quiet) { id(idle_prev) = NAN; return; }
+          // Two consecutive readings within 10 g: the scale has settled.
+          if (std::isfinite(id(idle_prev)) && fabsf(w - id(idle_prev)) < 0.01f) id(idle_weight) = w;
+          id(idle_prev) = w;
 
 button:
   - platform: template
@@ -768,23 +1043,35 @@ button:
         then:
           - globals.set:
               id: litter_mass
-              value: '0'
-          - globals.set:
-              id: waste_collected
-              value: !lambda return max(0.f, (max(0.f, id(weight).state) - id(litter_mass)));
+              value: !lambda return id(weight).state - id(waste_collected);
+          - globals.set:  # the weight baseline of a pending visit is no longer valid
+              id: visit_confirmed
+              value: 'false'
 
+  # Explicit empty confirmation is only for commissioning or relocating the unit.
+  # Routine small drift is corrected automatically without pressing this button.
   - platform: template
-    name: Weight Calibration Zero
-    icon: mdi:scale-balance
-    entity_category: diagnostic
+    name: Confirm Toilet Empty
+    entity_category: config
+    disabled_by_default: true
     on_press:
-      if:
-        condition:
-          binary_sensor.is_off: cover
-        then:
-          globals.set:
-            id: weight_zero
-            value: !lambda return id(weight).raw_state;
+      lambda: |-
+        if (!id(weight_last_sample) || millis() - id(weight_last_sample) > 2000 ||
+            !std::isfinite(id(weight).raw_state) || !std::isfinite(id(weight_scale)) ||
+            id(weight_scale) >= -0.000001f || id(weight_scale) <= -0.001f ||
+            !id(approach).has_state() || id(approach).state ||
+            !id(cover).has_state() || id(cover).state ||
+            !id(bin).has_state() || id(bin).state ||
+            !id(tray).has_state() || id(tray).state ||
+            !id(drum_level).has_state() || id(drum_level).state ||
+            id(clean).state || id(maintenance).state || !id(mcu).motors_idle()) {
+          ESP_LOGW("weight", "Empty confirmation rejected: sensors not ready or toilet active");
+          return;
+        }
+        id(weight_zero) = lroundf(id(weight).raw_state -
+            (id(litter_mass) + id(waste_collected)) / id(weight_scale));
+        id(weight_zero_anchor) = id(weight_zero);
+        ESP_LOGI("weight", "Confirmed empty baseline saved");
 
   - platform: restart
     name: Restart
@@ -831,9 +1118,14 @@ switch:
                 timeout: 80
             else:
               - script.stop: clean_if_needed
-              - globals.set:
-                  id: waste_pending
-                  value: !lambda return max(0.f, (max(0.f, id(weight).state) - id(litter_mass)));
+              - lambda: |-
+                  // A resumed or restarted cycle must not re-read weight mid-rotation.
+                  // Only a fresh cycle services the pending visit; a visit made while
+                  // this cycle was paused stays pending for a follow-up clean.
+                  if (id(waste_pending) <= 0 && std::isfinite(id(weight).state)) {
+                    id(waste_pending) = max(0.001f, id(weight).state - id(litter_mass));
+                    id(visit_confirmed) = false;
+                  }
               - pkt4_mcu.motor:
                   motor: drum
                   direction: up
@@ -858,9 +1150,12 @@ switch:
               mode: time
               timeout: 80
     on_turn_off:
-      globals.set:
-        id: cleaned_at
-        value: !lambda return millis();
+      - globals.set:
+          id: cleaned_at
+          value: !lambda return millis();
+      - globals.set:
+          id: waste_pending
+          value: '0'
 
   - platform: template
     id: maintenance
@@ -877,24 +1172,27 @@ switch:
           - binary_sensor.is_off: drum_up
           - binary_sensor.is_off: drum_level
         then:
-          if:
-            condition:
-              not:
-                binary_sensor.is_on: tray
-            then:
-              pkt4_mcu.motor:
-                motor: tray
-                direction: open
-                speed: 100
-                mode: time
-                timeout: 80
-            else:
-              pkt4_mcu.motor:
-                motor: drum
-                direction: up
-                speed: 100
-                mode: time
-                timeout: 120
+          - lambda: |-
+              id(visit_confirmed) = false;
+              id(forced_cleans) = 0;
+          - if:
+              condition:
+                not:
+                  binary_sensor.is_on: tray
+              then:
+                pkt4_mcu.motor:
+                  motor: tray
+                  direction: open
+                  speed: 100
+                  mode: time
+                  timeout: 80
+              else:
+                pkt4_mcu.motor:
+                  motor: drum
+                  direction: up
+                  speed: 100
+                  mode: time
+                  timeout: 120
         else:
           - delay: 0s  # yield
           - switch.turn_off: maintenance
@@ -904,15 +1202,18 @@ switch:
           mode: stop
       - if:
           condition:
-            binary_sensor.is_off: cover
+            and:
+              - binary_sensor.is_off: cover
+              - lambda: return id(weight_last_sample) && millis() - id(weight_last_sample) < 3000 && std::isfinite(id(weight).state);
           then:
             globals.set:
               id: litter_mass
-              value: !lambda return max(0.f, (max(0.f, id(weight).state) - id(waste_collected)));
+              value: !lambda return (id(weight).state - id(waste_collected));
       - globals.set:
           id: level_needed
           value: 'true'
       - script.execute: level_if_needed
+      - script.execute: refine_litter_mass
 
   - platform: template
     id: do_auto_clean
@@ -922,7 +1223,14 @@ switch:
     optimistic: true
     restore_mode: restore_default_off  # better safe than sorry!
     on_turn_on:
-      script.execute: auto_clean
+      script.execute:
+        id: auto_clean
+        new_visit: false
+    on_turn_off:
+      - script.stop: clean_if_needed
+      - lambda: |-
+          id(visit_confirmed) = false;
+          id(forced_cleans) = 0;
 
   - platform: template
     id: block_movement
@@ -1089,6 +1397,20 @@ number:
     initial_value: 1.00
 
   - platform: template
+    id: min_visit
+    name: Min Visit Duration
+    icon: mdi:timer-check-outline
+    entity_category: config
+    unit_of_measurement: s
+    mode: box
+    min_value: 3
+    max_value: 120
+    step: 1
+    optimistic: true
+    restore_value: true
+    initial_value: 10
+
+  - platform: template
     id: litter_threshold
     name: Litter Threshold
     icon: mdi:pail
@@ -1117,11 +1439,12 @@ number:
     initial_value: 1.00
 
   - platform: template
-    name: Weight Calibration
+    name: Reference Weight (Optional)
+    disabled_by_default: true
     icon: mdi:scale-balance
     entity_category: diagnostic
     mode: box
-    min_value: 0
+    min_value: 0.10
     max_value: 10
     step: 0.01
     initial_value: NaN
@@ -1131,9 +1454,16 @@ number:
         condition:
           binary_sensor.is_off: cover
         then:
-          globals.set:
-            id: weight_scale
-            value: !lambda return ((float)x / (id(weight).raw_state - id(weight_zero)));
+          lambda: |-
+            // The reference is ADDED to the existing litter/waste load.
+            const float delta = id(weight).raw_state - id(weight_zero);
+            const float total = x + id(litter_mass) + id(waste_collected);
+            const float scale = total / delta;
+            if (id(mcu).motors_idle() && !id(approach).state && !id(pet_inside).state &&
+                !id(clean).state && !id(maintenance).state &&
+                id(weight_last_sample) && millis() - id(weight_last_sample) < 3000 &&
+                std::isfinite(scale) && delta < -100 && scale < -0.000001f && scale > -0.001f)
+              id(weight_scale) = scale;
 
 script:
   - id: level_if_needed
@@ -1141,8 +1471,9 @@ script:
       - delay: 0s  # yield
       - if:
           condition:
-            - lambda: return id(ota_state);
-            - switch.is_on: block_movement
+            or:
+              - lambda: return id(ota_state) != 0;
+              - switch.is_on: block_movement
           then:
             - script.stop: level_if_needed
       - if:
@@ -1214,28 +1545,63 @@ script:
       - delay: !lambda return id(clean_after).state*60000;
       - if:
           condition:
-            - lambda: return id(ota_state);
-            - switch.is_on: block_movement
+            or:
+              - lambda: return id(ota_state) != 0;
+              - switch.is_on: block_movement
           then:
             - script.stop: clean_if_needed
+      # Someone is nearby: wait for them instead of restarting the whole delay.
+      - wait_until:
+          condition:
+            and:
+              - binary_sensor.is_off: approach
+              - binary_sensor.is_off: pet_inside
+          timeout: 30min
       - if:
-          all:
-            - switch.is_off: maintenance
-            - binary_sensor.is_off: pet_inside
-            - any:
-              - all:
-                - switch.is_on: do_auto_clean
-                - lambda: return id(pet_weight).state*1000 > id(clean_threshold).state;
-              - lambda: return (id(cleans_left) > 0 && id(cleans_left) < id(clean_times).state);
+          any:
+            - binary_sensor.is_on: approach
+            - binary_sensor.is_on: pet_inside
+            - switch.is_on: maintenance
+            - switch.is_off: do_auto_clean
+          then:
+            - script.stop: clean_if_needed  # stay armed; the next release re-runs this
+      - if:
+          condition:
+            lambda: |-
+              if (id(visit_confirmed)) {
+                // Weight gained since just before the visit (unclamped, waste only).
+                const float gain = id(weight).state - id(visit_baseline);
+                if (!std::isfinite(gain) || !id(weight_last_sample) ||
+                    millis() - id(weight_last_sample) > 3000) {
+                  ESP_LOGW("clean", "Scale not ready; keeping the visit pending");
+                  return false;
+                }
+                id(last_visit_gain) = gain;
+                id(last_visit_waste).update();
+                if (gain * 1000 >= id(clean_threshold).state) {
+                  ESP_LOGI("clean", "Auto clean: visit left %.0f g", gain * 1000);
+                  id(forced_cleans) = (int) id(clean_times).state - 1;
+                  return true;
+                }
+                ESP_LOGI("clean", "Skipped: visit left only %.0f g (< %.0f g)", gain * 1000, id(clean_threshold).state);
+                id(visit_confirmed) = false;
+                id(forced_cleans) = 0;
+                return false;
+              }
+              if (id(forced_cleans) > 0) {
+                id(forced_cleans) -= 1;
+                ESP_LOGI("clean", "Auto clean: repeat (%d more)", id(forced_cleans));
+                return true;
+              }
+              return false;
           then:
             switch.turn_on: clean
           else:
-            - globals.set:
-                id: cleans_left
-                value: '0'
-            - script.execute: level_if_needed
+            script.execute: level_if_needed
 
   - id: auto_clean
+    parameters:
+      new_visit: bool
     then:
       if:
         all:
@@ -1244,12 +1610,11 @@ script:
           - switch.is_off: maintenance
           - binary_sensor.is_off: pet_inside
           - binary_sensor.is_off: tray_full
-          - lambda: return id(cleans_left) > 0;
+          - lambda: return id(visit_confirmed) || id(forced_cleans) > 0;
+          # A new visit restarts the countdown; other events only start it.
+          - lambda: return new_visit || !id(clean_if_needed).is_running();
         then:
           - script.execute: clean_if_needed
-          - globals.set:
-              id: cleans_left
-              value: !lambda return id(cleans_left)-1;
         else:
           if:
             all:
@@ -1260,6 +1625,29 @@ script:
               switch.turn_on: clean  # resume
             else:
               script.execute: level_if_needed
+
+  # Re-measure the litter after leveling settles (maintenance exit captures it
+  # immediately, possibly with a hand on the unit). Only small corrections.
+  - id: refine_litter_mass
+    mode: restart
+    then:
+      - wait_until:
+          condition:
+            lambda: |-
+              return !id(level_needed) && !id(clean).state && !id(maintenance).state &&
+                  id(mcu).motors_idle() && id(tray).has_state() && !id(tray).state;
+          timeout: 10min
+      - delay: 20s
+      - lambda: |-
+          if (id(level_needed) || id(clean).state || id(maintenance).state ||
+              id(approach).state || id(pet_inside).state || id(cover).state || id(visit_confirmed) ||
+              !id(weight_last_sample) || millis() - id(weight_last_sample) > 3000 ||
+              !std::isfinite(id(weight).state)) return;
+          const float litter = id(weight).state - id(waste_collected);
+          if (fabsf(litter - id(litter_mass)) < 0.3f) {
+            ESP_LOGI("weight", "Litter re-measured after leveling: %+.0f g", (litter - id(litter_mass)) * 1000);
+            id(litter_mass) = litter;
+          }
 
   - id: emergency_stop
     then:

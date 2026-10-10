@@ -24,17 +24,41 @@ void PKT4MCUComponent::dump_config() {
 //void PKT4MCUComponent::update() {}
 
 void PKT4MCUComponent::loop() {
-	if (this->available() >= offsetof(MCUPacket, payload) + sizeof(uint16_t) && (this->packet_.magic = (this->read() | (this->read() << 8))) == MAGIC) {
-		this->read_byte(&this->packet_.len);
-		this->read_array(((uint8_t*)&this->packet_ + offsetof(MCUPacket, len) + 1),
-		                 (this->packet_.len - (offsetof(MCUPacket, len) + 1)));
-		uint16_t crc_in = *(uint16_t*)((uint8_t*)&this->packet_ + this->packet_.len - sizeof(crc_in)),
-		         crc_act = crc16be((uint8_t*)&this->packet_, (this->packet_.len - sizeof(crc_in)), 0xffff);
+    for (uint8_t i = 0; i < 2; ++i) {
+        if (motor_active_[i] && (!movement_allowed_ || !movement_allowed_() ||
+            uint32_t(millis() - motor_started_[i]) > motor_window_[i])) {
+            motor(i, 2, 0, 0, 0, 0);
+            stop_retries_[i] = 3;  // a single lost stop frame must not leave a motor running
+            stop_sent_[i] = millis();
+        } else if (stop_retries_[i] && uint32_t(millis() - stop_sent_[i]) > 100) {
+            --stop_retries_[i];
+            stop_sent_[i] = millis();
+            motor(i, 2, 0, 0, 0, 0);
+        }
+    }
+    if (rx_size_ && uint32_t(millis() - rx_last_) > 200) rx_size_ = 0;
+    while (this->available()) {
+        uint8_t byte;
+        if (!this->read_byte(&byte)) break;
+        rx_last_ = millis();
+        auto *bytes = reinterpret_cast<uint8_t *>(&packet_);
+        if (rx_size_ == 0 && byte != 0x5A) continue;
+        if (rx_size_ == 1 && byte != 0xA5) {
+            rx_size_ = byte == 0x5A ? 1 : 0;
+            continue;
+        }
+        bytes[rx_size_++] = byte;
+        if (rx_size_ == 3 && packet_.len < 8) { rx_size_ = 0; continue; }
+        if (rx_size_ < 3 || rx_size_ < packet_.len) continue;
+        rx_size_ = 0;
+        uint16_t crc_in = bytes[packet_.len - 2] | (uint16_t(bytes[packet_.len - 1]) << 8);
+        uint16_t crc_act = crc16be(bytes, packet_.len - 2, 0xffff);
+        const size_t payload_len = packet_.len - 8;
 
 		if (crc_in != crc_act) {
 			ESP_LOGW(TAG, "CRC mismatch: %04x != %04x", crc_act, crc_in);
 			uart::UARTDebug::log_hex(uart::UART_DIRECTION_RX, std::vector<uint8_t>((uint8_t*)&this->packet_, ((uint8_t*)&this->packet_ + this->packet_.len)), ' ');
-			return;
+			continue;
 		}
 
 		if (this->packet_.pid != 0x0 &&
@@ -47,6 +71,8 @@ void PKT4MCUComponent::loop() {
 			uart::UARTDebug::log_hex(uart::UART_DIRECTION_RX, std::vector<uint8_t>(this->packet_.payload, (this->packet_.payload + (this->packet_.len - offsetof(MCUPacket, payload)) - sizeof(crc_in))), ' ');
 		}
 
+        if (!payload_len) continue;
+
 		struct __attribute__((packed)) node {
 			uint8_t node :4;
 			bool unk0 :1,
@@ -57,7 +83,12 @@ void PKT4MCUComponent::loop() {
 		} *node = (struct node*)this->packet_.payload;
 
 		switch (this->packet_.pid) {
+            case 0x0:  // Heartbeat acknowledgement
+            case 0x2:  // Motor acknowledgement
+            case 0x3:  // Motor status (position sensors stop motion)
+                break;
 			case 0x1: {
+                if (payload_len < (node->node == 0 ? 3u : 13u)) continue;
 				switch (node->node) {
 					case 0x0: {
 						struct __attribute__((packed)) p1_0 {
@@ -102,6 +133,8 @@ void PKT4MCUComponent::loop() {
 			}; break;
 
 			case 0x7: {
+                if (payload_len < 2) continue;
+                if (packet_.payload[1] > (payload_len - 2) / 4) continue;
 				switch (node->node) {
 					case 0x0: {
 						struct __attribute__((packed)) p7_0 {
@@ -124,6 +157,7 @@ void PKT4MCUComponent::loop() {
 			}; break;
 
 			case 0x9: {
+                if (payload_len < 4) continue;
 				switch (node->node) {
 					case 0x0: {
 						struct __attribute__((packed)) p9_0 {
@@ -175,7 +209,7 @@ void PKT4MCUComponent::loop() {
 						};
 						this->send_(0x1, (uint8_t*)&buf_1, sizeof(buf_1));
 
-						/*struct __attribute__((packed)) {
+						struct __attribute__((packed)) {
 							uint8_t sid;
 							uint8_t samples;
 							uint16_t rate[2];
@@ -184,7 +218,7 @@ void PKT4MCUComponent::loop() {
 							.samples = 5,
 							.rate = {10, 10},
 						};
-						this->send_(0x7, (uint8_t*)&buf_7, sizeof(buf_7));*/
+						this->send_(0x7, (uint8_t*)&buf_7, sizeof(buf_7));
 
 						this->inited_ = true;
 						ESP_LOGI(TAG, "Inited ver hw: %d sw: %d", this->hw_ver_, this->sw_ver_);
@@ -197,7 +231,7 @@ void PKT4MCUComponent::loop() {
 			default:
 				ESP_LOGD(TAG, "< %X seq=%u len=%u crc=%04x", this->packet_.pid, this->packet_.seq, (this->packet_.len - offsetof(MCUPacket, payload) - sizeof(crc_in)), crc_in);
 				ESP_LOGW(TAG, "Unknown packet: %x (node %x)", this->packet_.pid, this->packet_.payload[0]);
-				uart::UARTDebug::log_hex(uart::UART_DIRECTION_RX, std::vector<uint8_t>((uint8_t*)&this->packet_, ((uint8_t*)&this->packet_ + this->packet_.len + sizeof(crc_in))), ' ');
+				uart::UARTDebug::log_hex(uart::UART_DIRECTION_RX, std::vector<uint8_t>((uint8_t*)&this->packet_, ((uint8_t*)&this->packet_ + this->packet_.len)), ' ');
 		}
 	}
 }
@@ -208,10 +242,25 @@ void PKT4MCUComponent::init() {
 
 void PKT4MCUComponent::deinit() {
 	this->inited_ = false;
+	// The MCU was reset: any motion it was performing has stopped with it.
+	this->motor_active_[0] = this->motor_active_[1] = false;
+	this->stop_retries_[0] = this->stop_retries_[1] = 0;
+	this->rx_size_ = 0;
 	ESP_LOGW(TAG, "Deinited T4 MCU");
 }
 
 void PKT4MCUComponent::motor(uint8_t motor, uint8_t mode, uint8_t direction, uint8_t speed, uint16_t duration, uint16_t timeout) {
+    if (motor > 1) return;
+    if (mode != 2 && (!movement_allowed_ || !movement_allowed_())) {
+        ESP_LOGW(TAG, "Movement blocked by safety interlock");
+        return;
+    }
+    motor_active_[motor] = mode != 2;
+    if (mode != 2) stop_retries_[motor] = 0;
+    motor_started_[motor] = millis();
+    // Independent two-minute ceiling; the MCU retains its configured timeout.
+    motor_window_[motor] = 120000;
+
 	struct __attribute__((packed)) {
 		uint8_t motor,
 		        mode,
@@ -251,7 +300,7 @@ void PKT4MCUComponent::send_(uint8_t pid, uint8_t payload[], uint8_t len) {
 		return;
 	}
 
-	if (len > sizeof(MCUPacket{}.payload)) {
+	if (len > sizeof(MCUPacket{}.payload) - sizeof(uint16_t)) {
 		ESP_LOGE(TAG, "send_() len > max");
 		return;
 	}
@@ -265,7 +314,9 @@ void PKT4MCUComponent::send_(uint8_t pid, uint8_t payload[], uint8_t len) {
 	};
 
 	if (len) memcpy(packet.payload, payload, len);
-	*(uint16_t*)((uint8_t*)packet.payload + len) = crc16be((uint8_t*)&packet, (packet.len - sizeof(uint16_t)), 0xffff);
+	const uint16_t crc = crc16be((uint8_t*)&packet, packet.len - sizeof(uint16_t), 0xffff);
+    packet.payload[len] = crc & 0xff;
+    packet.payload[len + 1] = crc >> 8;
 
 	ESP_LOGD(TAG, "> %X len=%u", packet.pid, (packet.len - offsetof(MCUPacket, payload) - sizeof(uint16_t)));
 	this->write_array((uint8_t*)&packet, packet.len);
