@@ -688,7 +688,7 @@ binary_sensor:
               pkt4_mcu.motor:
                 motor: tray
                 direction: open
-                speed: 50
+                speed: 100
                 mode: time
                 timeout: 80
       on_release:
@@ -805,7 +805,7 @@ binary_sensor:
                     pkt4_mcu.motor:
                       motor: tray
                       direction: close
-                      speed: 5
+                      speed: 100  # stock speed (was 5)
                       mode: time
                       timeout: 80
         - globals.set:
@@ -1153,7 +1153,7 @@ switch:
             pkt4_mcu.motor:
               motor: tray
               direction: close
-              speed: 5
+              speed: 100  # stock speed (was 5)
               mode: time
               timeout: 80
     on_turn_off:
@@ -1510,7 +1510,7 @@ script:
                 pkt4_mcu.motor:
                   motor: tray
                   direction: close
-                  speed: 5
+                  speed: 100  # stock speed (was 5)
                   mode: time
                   timeout: 80
               else:
@@ -1621,6 +1621,9 @@ script:
           # A new visit restarts the countdown; other events only start it.
           - lambda: return new_visit || !id(clean_if_needed).is_running();
         then:
+          # A cat jumping out can rock the drum off level; fix that now instead of
+          # leaving uneven litter for the whole Clean After delay.
+          - script.execute: level_if_needed
           - script.execute: clean_if_needed
         else:
           if:

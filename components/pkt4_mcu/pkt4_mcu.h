@@ -39,7 +39,11 @@ class PKT4MCUComponent: public Component, public uart::UARTDevice {
 		void set_tray_sensor(binary_sensor::BinarySensor *tray_sensor) { this->tray_sensor_ = tray_sensor; }
 
 		void set_movement_allowed(std::function<bool()> fn) { movement_allowed_ = fn; }
-        bool motors_idle() const { return !motor_active_[0] && !motor_active_[1]; }
+        // Idle once the MCU reports the stop; motor_active_ itself stays set for
+        // the safety watchdog until our own stop/timeout.
+        bool motors_idle() const {
+            return (!motor_active_[0] || reported_stopped_[0]) && (!motor_active_[1] || reported_stopped_[1]);
+        }
         void init(void);
 		void deinit(void);
 		void motor(uint8_t motor, uint8_t mode, uint8_t direction, uint8_t speed, uint16_t duration, uint16_t timeout);
@@ -48,10 +52,12 @@ class PKT4MCUComponent: public Component, public uart::UARTDevice {
 		uint8_t hw_ver_,
 		        sw_ver_;
 		bool inited_{false};
+		uint32_t inited_at_{0};
         std::function<bool()> movement_allowed_;
         bool motor_active_[2]{false, false};
         uint32_t motor_started_[2]{0, 0};
         uint32_t motor_window_[2]{0, 0};
+        bool reported_stopped_[2]{false, false};
         uint8_t stop_retries_[2]{0, 0};
         uint32_t stop_sent_[2]{0, 0};
         size_t rx_size_{0};

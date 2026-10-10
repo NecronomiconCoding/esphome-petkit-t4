@@ -85,8 +85,12 @@ void PKT4MCUComponent::loop() {
 		switch (this->packet_.pid) {
             case 0x0:  // Heartbeat acknowledgement
             case 0x2:  // Motor acknowledgement
-            case 0x3:  // Motor status (position sensors stop motion)
                 break;
+            case 0x3: {  // Motor status: [0xA0|motor event / 0x80|motor progress][state: 0 idle, 2 running, 3 stopped]...
+                const uint8_t m = packet_.payload[0] & 0x0F;
+                if ((packet_.payload[0] & 0xF0) == 0xA0 && payload_len >= 2 && m < 2 && packet_.payload[1] == 3)
+                    reported_stopped_[m] = true;
+            }; break;
 			case 0x1: {
                 if (payload_len < (node->node == 0 ? 3u : 13u)) continue;
 				switch (node->node) {
@@ -169,7 +173,14 @@ void PKT4MCUComponent::loop() {
 						this->hw_ver_ = data->hw_ver;
 						this->sw_ver_ = data->sw_ver;
 
-						if (this->inited_) return;
+						// An unsolicited version packet after init means the MCU reset
+						// itself and lost its configuration (weight streaming etc.).
+						// The MCU repeats this a few times while booting; only a later one
+						// means it reset itself and lost its configuration.
+						if (this->inited_) {
+							if (millis() - this->inited_at_ < 5000) return;
+							ESP_LOGW(TAG, "MCU re-announced itself; re-sending configuration");
+						}
 
 						uint8_t buf_20[] = {0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x64, 0x00, 0x00};
 						this->send_(0x2, buf_20, sizeof(buf_20));
@@ -221,6 +232,7 @@ void PKT4MCUComponent::loop() {
 						this->send_(0x7, (uint8_t*)&buf_7, sizeof(buf_7));
 
 						this->inited_ = true;
+						this->inited_at_ = millis();
 						ESP_LOGI(TAG, "Inited ver hw: %d sw: %d", this->hw_ver_, this->sw_ver_);
 					}; break;
 
@@ -256,6 +268,7 @@ void PKT4MCUComponent::motor(uint8_t motor, uint8_t mode, uint8_t direction, uin
         return;
     }
     motor_active_[motor] = mode != 2;
+    reported_stopped_[motor] = false;
     if (mode != 2) stop_retries_[motor] = 0;
     motor_started_[motor] = millis();
     // Independent two-minute ceiling; the MCU retains its configured timeout.

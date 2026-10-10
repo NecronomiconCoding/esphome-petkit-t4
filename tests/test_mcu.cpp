@@ -43,6 +43,13 @@ int main() {
   assert(m.output.size()==one*4);allowed=true;}
  // An MCU reset clears motor state and the partial frame buffer.
  {m.motor(0,3,1,100,0,1000);assert(!m.motors_idle());m.deinit();assert(m.motors_idle());}
+ // MCU stop event (0x3, 0xA0|motor, state 3) marks the motor idle but keeps the
+ // safety watchdog armed: losing the interlock still sends a stop.
+ {allowed=true;m.motor(1,3,1,100,0,1000);assert(!m.motors_idle());
+  feed(m,frame(3,{0x81,2,0,1,100,7}));assert(!m.motors_idle());       // progress report
+  feed(m,frame(3,{0xA1,3,1,1,100,7}));assert(m.motors_idle());       // stopped event
+  allowed=false;m.output.clear();m.loop();assert(!m.output.empty());allowed=true;
+  m.motor(1,3,1,100,0,1000);assert(!m.motors_idle());}              // new run re-arms
  // A CRC error must not drop the remaining bytes of the same UART read.
  {auto b=good;b.back()^=1;b.insert(b.end(),good.begin(),good.end());size_t c=w.count;feed(m,b);assert(w.count==c+1);}
  // Exercise arbitrary and truncated traffic under ASan/UBSan.
