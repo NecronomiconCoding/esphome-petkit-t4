@@ -385,6 +385,10 @@ globals:
     type: float
     initial_value: 'NAN'
 
+  - id: visit_longest  # seconds, longest confirmed visit of the pending clean
+    type: float
+    restore_value: true
+
   - id: last_visit_gain
     type: float
     initial_value: 'NAN'
@@ -899,6 +903,9 @@ binary_sensor:
           const float mass = id(visit_sum) / id(visit_samples) - id(visit_ref);
           id(visits_today) += 1;
           id(visits_total) += 1;
+          // Longest visit since the last clean; several short visits merge into
+          // one pending clean, so keep the strongest evidence.
+          id(visit_longest) = id(visit_confirmed) ? std::max(id(visit_longest), duration) : duration;
           id(visit_confirmed) = true;
           id(last_visit_duration) = duration;
           id(last_visit_duration_sensor).update();
@@ -997,6 +1004,12 @@ binary_sensor:
       pkt4_mcu.deinit:
 
 text_sensor:
+  - platform: template
+    id: clean_decision
+    name: Clean Decision
+    icon: mdi:head-check-outline
+    update_interval: never
+
   - platform: template
     name: Status
     icon: mdi:information-outline
@@ -1450,6 +1463,20 @@ number:
     initial_value: 1.00
 
   - platform: template
+    id: always_clean_after
+    name: Always Clean After Visit
+    icon: mdi:timer-check
+    entity_category: config
+    unit_of_measurement: s
+    mode: box
+    min_value: 5
+    max_value: 600
+    step: 1
+    optimistic: true
+    restore_value: true
+    initial_value: 20
+
+  - platform: template
     id: min_visit
     name: Min Visit Duration
     icon: mdi:timer-check-outline
@@ -1635,12 +1662,22 @@ script:
                 }
                 id(last_visit_gain) = gain;
                 id(last_visit_waste).update();
-                if (gain * 1000 >= id(clean_threshold).state) {
-                  ESP_LOGI("clean", "Auto clean: visit left %.0f g", gain * 1000);
+                char why[64];
+                // Weight alone misses waste when the cat kicks litter out of the
+                // drum (seen: -16 g after a 113 s visit), so a long enough visit
+                // always gets a clean; the weight gain only decides short ones.
+                const bool heavy = gain * 1000 >= id(clean_threshold).state;
+                const bool long_visit = id(visit_longest) >= id(always_clean_after).state;
+                if (heavy || long_visit) {
+                  snprintf(why, sizeof(why), "Cleaned: %.0f s visit, %+.0f g", id(visit_longest), gain * 1000);
+                  ESP_LOGI("clean", "%s", why);
+                  id(clean_decision).publish_state(why);
                   id(forced_cleans) = (int) id(clean_times).state - 1;
                   return true;
                 }
-                ESP_LOGI("clean", "Skipped: visit left only %.0f g (< %.0f g)", gain * 1000, id(clean_threshold).state);
+                snprintf(why, sizeof(why), "Skipped: %.0f s visit, %+.0f g", id(visit_longest), gain * 1000);
+                ESP_LOGI("clean", "%s", why);
+                id(clean_decision).publish_state(why);
                 id(visit_confirmed) = false;
                 id(forced_cleans) = 0;
                 return false;
