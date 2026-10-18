@@ -47,8 +47,11 @@ above the settled idle weight) for at least **Min Visit Duration** (default 10 s
 with at least three steady readings. Paws on the rim, a hand on the unit, drum
 swings, power-ups and slow weight drift no longer arm cleaning. After **Clean
 After** minutes (waiting up to 30 more minutes if someone is nearby), the box
-cleans only if the weight gained since just before the visit is at least
-**Clean Threshold**. Otherwise the clean is skipped and logged. **Clean Times**
+cleans if the longest visit lasted at least **Always Clean After Visit**
+(default 20 s), or if the weight gained since just before the visit is at least
+**Clean Threshold**. Weight alone is unreliable because cats kick litter out of
+the drum. Shorter, lighter visits are skipped. **Clean Decision** shows why the
+last clean ran or was skipped. **Clean Times**
 adds unconditional repeats after that first clean. Emptying the bin while a
 clean is pending keeps it pending. Maintenance, **All Litter Removed** or
 turning Auto Clean off cancels it.
