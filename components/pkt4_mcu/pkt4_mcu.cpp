@@ -85,6 +85,7 @@ void PKT4MCUComponent::loop() {
 		switch (this->packet_.pid) {
             case 0x0:  // Heartbeat acknowledgement
             case 0x2:  // Motor acknowledgement
+            case 0x4:  // Motor ADC configuration acknowledgement
                 break;
             case 0x3: {  // Motor status: [0xA0|motor event / 0x80|motor progress][state: 0 idle, 2 running, 3 stopped]...
                 const uint8_t m = packet_.payload[0] & 0x0F;
@@ -152,6 +153,7 @@ void PKT4MCUComponent::loop() {
 								weight += data->weight[i];  // int32 fits a sum of 128x uint24, while a packet can fit only 61 of such.
 							weight /= data->count;
 
+							this->stream_at_ = millis();
 							if (this->weight_sensor_) this->weight_sensor_->publish_state(weight);
 						}
 					}; break;
@@ -173,13 +175,14 @@ void PKT4MCUComponent::loop() {
 						this->hw_ver_ = data->hw_ver;
 						this->sw_ver_ = data->sw_ver;
 
-						// An unsolicited version packet after init means the MCU reset
-						// itself and lost its configuration (weight streaming etc.).
-						// The MCU repeats this a few times while booting; only a later one
-						// means it reset itself and lost its configuration.
+						// The MCU can keep announcing itself every second while working
+						// normally. Re-sending the configuration then would stop both
+						// motors every few seconds (it starts with stop frames), so only
+						// do it when the weight stream has died: that is what an MCU that
+						// really reset and lost its configuration looks like.
 						if (this->inited_) {
-							if (millis() - this->inited_at_ < 5000) return;
-							ESP_LOGW(TAG, "MCU re-announced itself; re-sending configuration");
+							if (millis() - this->stream_at_ < 3000 || millis() - this->inited_at_ < 5000) return;
+							ESP_LOGW(TAG, "MCU lost its configuration; re-sending it");
 						}
 
 						uint8_t buf_20[] = {0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x64, 0x00, 0x00};

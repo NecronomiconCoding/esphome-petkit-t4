@@ -50,6 +50,14 @@ int main() {
   feed(m,frame(3,{0xA1,3,1,1,100,7}));assert(m.motors_idle());       // stopped event
   allowed=false;m.output.clear();m.loop();assert(!m.output.empty());allowed=true;
   m.motor(1,3,1,100,0,1000);assert(!m.motors_idle());}              // new run re-arms
+ // Routine MCU announces while weight is streaming must NOT re-send the
+ // configuration: it begins with stop frames and would halt a running motor.
+ {pkt4_mcu::PKT4MCUComponent n; sensor::Sensor w2; n.set_weight_sensor(&w2);
+  auto hello=frame(9,{0x80,0,11,119});
+  feed(n,hello); size_t cfg=n.output.size(); assert(cfg>0);
+  for(int i=0;i<20;++i){test_now+=1000;feed(n,good);n.output.clear();feed(n,hello);assert(n.output.empty());}
+  // Stream dead for a while: now the MCU really lost its configuration.
+  test_now+=6000;n.output.clear();feed(n,hello);assert(n.output.size()==cfg);}
  // A CRC error must not drop the remaining bytes of the same UART read.
  {auto b=good;b.back()^=1;b.insert(b.end(),good.begin(),good.end());size_t c=w.count;feed(m,b);assert(w.count==c+1);}
  // Exercise arbitrary and truncated traffic under ASan/UBSan.

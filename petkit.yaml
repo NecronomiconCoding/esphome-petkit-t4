@@ -286,7 +286,7 @@ display:
 globals:
   - id: weight_zero
     type: int
-    initial_value: '7975680'
+    initial_value: '7266807'  # this unit, level with litter (2026-10)
     restore_value: true
 
   - id: weight_last_sample
@@ -294,7 +294,7 @@ globals:
 
   - id: weight_scale
     type: float
-    initial_value: '-1/65536.f'
+    initial_value: '-0.00001524658f'  # this unit's calibrated gain
     restore_value: true
 
   - id: litter_mass
@@ -1123,14 +1123,16 @@ button:
             !id(bin).has_state() || id(bin).state ||
             !id(tray).has_state() || id(tray).state ||
             !id(drum_level).has_state() || id(drum_level).state ||
-            id(clean).state || id(maintenance).state || !id(mcu).motors_idle()) {
+            id(clean).state || id(maintenance).state || !id(mcu).motors_idle() ||
+            id(pet_inside).state) {
           ESP_LOGW("weight", "Empty confirmation rejected: sensors not ready or toilet active");
           return;
         }
-        id(weight_zero) = lroundf(id(weight).raw_state -
-            (id(litter_mass) + id(waste_collected)) / id(weight_scale));
+        // The litter loaded right now becomes the new zero baseline.
+        id(litter_mass) = 0;
+        id(weight_zero) = lroundf(id(weight).raw_state - id(waste_collected) / id(weight_scale));
         id(weight_zero_anchor) = id(weight_zero);
-        ESP_LOGI("weight", "Confirmed empty baseline saved");
+        ESP_LOGI("weight", "Confirmed empty baseline saved: zero %d", id(weight_zero));
 
   - platform: restart
     name: Restart
@@ -1420,7 +1422,7 @@ number:
     step: 1
     optimistic: true
     restore_value: true
-    initial_value: 1
+    initial_value: 60
 
   - platform: template
     id: clean_threshold

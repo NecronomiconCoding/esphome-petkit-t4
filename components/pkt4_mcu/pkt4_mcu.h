@@ -53,6 +53,7 @@ class PKT4MCUComponent: public Component, public uart::UARTDevice {
 		        sw_ver_;
 		bool inited_{false};
 		uint32_t inited_at_{0};
+		uint32_t stream_at_{0};
         std::function<bool()> movement_allowed_;
         bool motor_active_[2]{false, false};
         uint32_t motor_started_[2]{0, 0};
