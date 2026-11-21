@@ -47,7 +47,8 @@ wifi:
   ap:
     ssid: !secret ap_ssid
     password: !secret ap_password
-  power_save_mode: none
+  # Espressif requires Wi-Fi modem sleep whenever Bluetooth shares the radio.
+  power_save_mode: light
   #output_power: 20dB
   reboot_timeout: 0s  # never
   on_connect:
@@ -56,6 +57,26 @@ wifi:
     rtttl.play: :d=16,o=6,b=100:g,e
 
 captive_portal:
+
+# Relay Bluetooth to Home Assistant for the Pura Air sprayer and the water
+# fountain (the stock firmware did this through the Petkit cloud).
+# WARNING: only ever flash a CLEAN build of this (see tools/check_layout.py):
+# adding Bluetooth on top of an existing build directory left a stale linker
+# script and produced a firmware that crashed before ESPHome started.
+esp32_ble:
+  max_connections: 2
+
+esp32_ble_tracker:
+  scan_parameters:
+    active: false  # passive scanning leaves more radio time for Wi-Fi
+
+bluetooth_proxy:
+  active: true
+  connection_slots: 2
+  cache_services: false  # the NVS partition is only 20 kB; keep it for settings
+
+debug:
+  update_interval: 30s
 
 #esp32_improv:
 #  authorizer: none
@@ -127,6 +148,7 @@ uart:
   tx_pin: GPIO1
   rx_pin: GPIO3
   baud_rate: 115200
+  rx_buffer_size: 1024  # headroom if Bluetooth briefly delays the main loop
   debug:
     direction: TX
     after:
@@ -694,6 +716,17 @@ sensor:
       name: MCU Interrupts
       entity_category: diagnostic
       disabled_by_default: true
+
+  - platform: debug
+    free:
+      name: Heap Free
+      entity_category: diagnostic
+    block:
+      name: Heap Max Block
+      entity_category: diagnostic
+    loop_time:
+      name: Loop Time
+      entity_category: diagnostic
 
   - platform: uptime
     id: sensor_uptime
