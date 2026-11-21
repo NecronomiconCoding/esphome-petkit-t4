@@ -79,6 +79,45 @@ api:
   encryption:
     key: !secret api_encryption_key
   reboot_timeout: 0s  # never
+  actions:
+    # Zero the scale on a known EMPTY-drum raw reading (toilet assembled, no
+    # litter), so the litter load becomes the true amount of litter. Whatever is
+    # in the drum right now is taken as litter.
+    - action: set_empty_baseline
+      variables:
+        empty_raw: int
+      then:
+        - lambda: |-
+            const float raw = id(weight).raw_state;
+            const float load = (raw - empty_raw) * id(weight_scale);
+            if (!id(weight_last_sample) || millis() - id(weight_last_sample) > 2000 ||
+                !std::isfinite(raw) || !std::isfinite(load) || load < 0 || load > 15 ||
+                id(approach).state || id(pet_inside).state || id(cover).state || id(bin).state ||
+                id(drum_level).state || id(clean).state || id(maintenance).state ||
+                !id(mcu).motors_idle()) {
+              ESP_LOGW("weight", "Empty baseline rejected: toilet not idle or value implausible");
+              return;
+            }
+            id(weight_zero) = empty_raw;
+            id(weight_zero_anchor) = empty_raw;
+            id(litter_mass) = load - id(waste_collected);
+            // Weights sampled against the old zero are no longer comparable.
+            id(idle_weight) = NAN;
+            id(idle_prev) = NAN;
+            id(visit_confirmed) = false;
+            ESP_LOGI("weight", "Empty baseline %d set; litter %.2f kg", empty_raw, id(litter_mass));
+    # Put lifetime counters back after a factory reset.
+    - action: restore_totals
+      variables:
+        visits: int
+        litter_discarded_kg: float
+      then:
+        - lambda: |-
+            if (visits < 0 || !std::isfinite(litter_discarded_kg) || litter_discarded_kg < 0) return;
+            id(visits_total) = visits;
+            id(litter_discarded) = litter_discarded_kg;
+            id(visits_total_sensor).update();
+            ESP_LOGI("main", "Totals restored: %d visits, %.2f kg litter discarded", visits, litter_discarded_kg);
 
 logger:
   hardware_uart: UART1
@@ -1132,6 +1171,8 @@ button:
         id(litter_mass) = 0;
         id(weight_zero) = lroundf(id(weight).raw_state - id(waste_collected) / id(weight_scale));
         id(weight_zero_anchor) = id(weight_zero);
+        id(idle_weight) = NAN;  // sampled against the old zero
+        id(idle_prev) = NAN;
         ESP_LOGI("weight", "Confirmed empty baseline saved: zero %d", id(weight_zero));
 
   - platform: restart
@@ -1500,7 +1541,7 @@ number:
     unit_of_measurement: kg
     mode: box
     min_value: 1.00
-    max_value: 5.00
+    max_value: 10.00
     step: 0.10
     optimistic: true
     restore_value: true
