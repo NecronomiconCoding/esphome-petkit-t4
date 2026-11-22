@@ -341,6 +341,91 @@
           "cards": [
             {
               "type": "heading",
+              "heading": "Drinking",
+              "icon": "mdi:cup-water"
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.petkit_ctw3_drink_count",
+              "name": "Drinks today"
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.petkit_ctw3_drink_seconds_today",
+              "name": "Time drinking today"
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.petkit_ctw3_last_drink",
+              "name": "Last drink"
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.petkit_ctw3_last_drink_duration",
+              "name": "Last drink length"
+            },
+            {
+              "type": "history-graph",
+              "title": "When she drank (24 h)",
+              "hours_to_show": 24,
+              "grid_options": {
+                "columns": 12
+              },
+              "entities": [
+                {
+                  "entity": "binary_sensor.petkit_ctw3_pet_detected",
+                  "name": "At fountain"
+                },
+                {
+                  "entity": "binary_sensor.petkit_t4_pet_inside",
+                  "name": "In toilet"
+                }
+              ]
+            },
+            {
+              "type": "statistics-graph",
+              "title": "Drinks per day",
+              "chart_type": "bar",
+              "period": "day",
+              "days_to_show": 14,
+              "stat_types": [
+                "change"
+              ],
+              "grid_options": {
+                "columns": 12
+              },
+              "entities": [
+                {
+                  "entity": "sensor.petkit_ctw3_drink_seconds_today",
+                  "name": "Seconds drinking"
+                }
+              ]
+            },
+            {
+              "type": "entities",
+              "title": "Drinking alerts",
+              "state_color": true,
+              "grid_options": {
+                "columns": 12
+              },
+              "entities": [
+                {
+                  "entity": "automation.cat_care_low_drinking_today",
+                  "name": "Low drinking (20:00)"
+                },
+                {
+                  "entity": "automation.cat_care_no_drink_for_16_hours",
+                  "name": "No drink for 16 h"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "grid",
+          "cards": [
+            {
+              "type": "heading",
               "heading": "Water fountain",
               "icon": "mdi:fountain"
             },
@@ -373,6 +458,22 @@
               "type": "tile",
               "entity": "binary_sensor.petkit_ctw3_warning_filter",
               "name": "Filter warning"
+            },
+            {
+              "type": "tile",
+              "entity": "button.petkit_ctw3_reset_filter",
+              "name": "Reset filter",
+              "icon": "mdi:air-filter",
+              "tap_action": {
+                "action": "perform-action",
+                "perform_action": "button.press",
+                "target": {
+                  "entity_id": "button.petkit_ctw3_reset_filter"
+                },
+                "confirmation": {
+                  "text": "Reset the fountain filter counter? Only do this after fitting a new filter."
+                }
+              }
             },
             {
               "type": "tile",
