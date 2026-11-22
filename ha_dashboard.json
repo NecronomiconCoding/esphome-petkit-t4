@@ -105,6 +105,74 @@
           "cards": [
             {
               "type": "heading",
+              "heading": "Cat health",
+              "icon": "mdi:heart-pulse"
+            },
+            {
+              "type": "tile",
+              "entity": "input_datetime.cat_last_toilet_visit",
+              "name": "Last toilet visit"
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.guest_bathroom_petkit_t4_visits_today",
+              "name": "Visits today"
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.guest_bathroom_petkit_t4_cat_body_mass_24_hour_average",
+              "name": "Weight (24 h avg)"
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.guest_bathroom_petkit_t4_cat_body_mass_14_day_average",
+              "name": "Weight (14-day avg)"
+            },
+            {
+              "type": "entities",
+              "title": "Cat care automations",
+              "state_color": true,
+              "grid_options": {
+                "columns": 12
+              },
+              "entities": [
+                {
+                  "entity": "automation.cat_care_frequent_toilet_visits",
+                  "name": "Alert: 3 visits within an hour"
+                },
+                {
+                  "entity": "automation.cat_care_no_toilet_visit_for_14_hours",
+                  "name": "Alert: no visit for 14 h"
+                },
+                {
+                  "entity": "automation.cat_care_weight_change",
+                  "name": "Alert: weight change > 5 %"
+                },
+                {
+                  "entity": "automation.cat_care_fountain",
+                  "name": "Fountain alerts"
+                },
+                {
+                  "entity": "automation.cat_care_spray_after_visit",
+                  "name": "Spray 3 min after a visit"
+                },
+                {
+                  "entity": "automation.cat_toilet_spray_after_clean",
+                  "name": "Spray after each clean"
+                },
+                {
+                  "entity": "automation.cat_care_daily_report",
+                  "name": "Daily report at 21:00"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "grid",
+          "cards": [
+            {
+              "type": "heading",
               "heading": "Cat",
               "icon": "mdi:paw"
             },
