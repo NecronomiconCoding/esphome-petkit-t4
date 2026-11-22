@@ -311,62 +311,21 @@
   "mode": "single",
   "max_exceeded": "silent"
  },
- "petkit_low_drinking_alert": {
-  "alias": "Cat care: low drinking today",
-  "description": "At 20:00: fewer than 3 drinking visits or under 1 minute at the fountain today. Silent until the fountain has detected at least one drink.",
-  "triggers": [
-   {
-    "trigger": "time",
-    "at": "20:00:00"
-   }
-  ],
-  "conditions": [
-   {
-    "condition": "template",
-    "value_template": "{{ states('sensor.petkit_ctw3_last_drink') not in ['unknown','unavailable',''] }}"
-   },
-   {
-    "condition": "state",
-    "entity_id": "binary_sensor.petkit_ctw3_warning_water_missing",
-    "state": "off"
-   },
-   {
-    "condition": "template",
-    "value_template": "{{ states('sensor.petkit_ctw3_drink_count') | int(0) < 3 or states('sensor.petkit_ctw3_drink_seconds_today') | int(0) < 60 }}"
-   }
-  ],
-  "actions": [
-   {
-    "action": "notify.mobile_app_noor_charless_iphone",
-    "data": {
-     "title": "💧 Low drinking today",
-     "message": "Only {{ states('sensor.petkit_ctw3_drink_count') | int(0) }} drinking visit(s), {{ (states('sensor.petkit_ctw3_drink_seconds_today') | int(0) / 60) | round(1) }} min at the fountain today. Check she is eating wet food or drinking elsewhere; low intake over several days is worth a vet check."
-    }
-   }
-  ],
-  "mode": "single"
- },
  "petkit_no_drink_alert": {
-  "alias": "Cat care: no drink for 16 hours",
-  "description": "Silent until the fountain has detected at least one drink.",
+  "alias": "Cat care: possible dehydration",
+  "description": "Fires only when BOTH: no drink at the fountain for 30 h AND at most one toilet visit in the last 24 h. Thresholds from her Petkit history (Oct-Nov 2026): fountain gaps over 24 h happen ~5x a month on their own.",
   "triggers": [
    {
     "trigger": "template",
-    "value_template": "{% set l = as_timestamp(states('sensor.petkit_ctw3_last_drink'), 0) %}{{ l > 0 and now().timestamp() - l > 16*3600 }}"
-   }
-  ],
-  "conditions": [
-   {
-    "condition": "template",
-    "value_template": "{{ states('sensor.petkit_ctw3_last_drink') not in ['unknown','unavailable',''] }}"
+    "value_template": "{% set d = as_timestamp(states('sensor.petkit_ctw3_last_drink'), 0) %}{% set p = state_attr('input_datetime.cat_previous_toilet_visit','timestamp') | float(0) %}{{ d > 0 and now().timestamp() - d > 30*3600 and p > 0 and now().timestamp() - p > 24*3600 }}"
    }
   ],
   "actions": [
    {
     "action": "notify.mobile_app_noor_charless_iphone",
     "data": {
-     "title": "💧 No drinking for 16 hours",
-     "message": "The fountain has not seen her drink since {{ as_timestamp(states('sensor.petkit_ctw3_last_drink')) | timestamp_custom('%a %H:%M') }}. Check the fountain has water and is running."
+     "title": "💧 Possible dehydration",
+     "message": "No drink at the fountain since {{ as_timestamp(states('sensor.petkit_ctw3_last_drink'), 0) | timestamp_custom('%a %H:%M') }} and only one toilet visit in the last 24 hours (last {{ as_timestamp(states('input_datetime.cat_last_toilet_visit'), 0) | timestamp_custom('%a %H:%M') }}). Check she is drinking and urinating; call the vet if she seems unwell."
     }
    }
   ],

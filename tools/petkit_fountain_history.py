@@ -22,7 +22,7 @@ from pathlib import Path
 import aiohttp
 from pypetkitapi.client import PetKitClient
 
-DAYS = int(sys.argv[1]) if len(sys.argv) > 1 else 90
+DAYS = int(sys.argv[1]) if len(sys.argv) > 1 else 30  # Petkit keeps 30 days (error 720 beyond)
 OUT = Path(__file__).with_name("fountain_history.json")
 
 
@@ -32,6 +32,10 @@ def sessions_from(records: list) -> list[dict]:
 
     def walk(node):
         if isinstance(node, dict):
+            if isinstance(node.get("workTime"), (int, float)) and "stayTime" in node:
+                # CTW3 work record: one drinking visit (unix start, seconds at the fountain)
+                found.append({"start": int(node["workTime"]), "end": int(node["workTime"]) + int(node["stayTime"] or 0),
+                              "duration": int(node["stayTime"] or 0), "event_type": None, "source": "workTime/stayTime"})
             t_in, t_out = node.get("timeIn"), node.get("timeOut")
             if isinstance(t_in, (int, float)) and isinstance(t_out, (int, float)) and t_out >= t_in > 0:
                 found.append({"start": int(t_in), "end": int(t_out), "duration": int(t_out - t_in),

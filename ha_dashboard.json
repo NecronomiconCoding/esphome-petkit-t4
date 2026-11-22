@@ -402,6 +402,44 @@
               ]
             },
             {
+              "type": "statistics-graph",
+              "title": "Petkit history: visits per day",
+              "chart_type": "bar",
+              "period": "day",
+              "days_to_show": 31,
+              "stat_types": [
+                "change"
+              ],
+              "grid_options": {
+                "columns": 12
+              },
+              "entities": [
+                {
+                  "entity": "petkit:cat_drink_visits",
+                  "name": "Visits"
+                }
+              ]
+            },
+            {
+              "type": "statistics-graph",
+              "title": "Petkit history: seconds drinking per day",
+              "chart_type": "bar",
+              "period": "day",
+              "days_to_show": 31,
+              "stat_types": [
+                "change"
+              ],
+              "grid_options": {
+                "columns": 12
+              },
+              "entities": [
+                {
+                  "entity": "petkit:cat_drink_seconds",
+                  "name": "Seconds"
+                }
+              ]
+            },
+            {
               "type": "entities",
               "title": "Drinking alerts",
               "state_color": true,
@@ -410,12 +448,8 @@
               },
               "entities": [
                 {
-                  "entity": "automation.cat_care_low_drinking_today",
-                  "name": "Low drinking (20:00)"
-                },
-                {
-                  "entity": "automation.cat_care_no_drink_for_16_hours",
-                  "name": "No drink for 16 h"
+                  "entity": "automation.cat_care_possible_dehydration",
+                  "name": "Possible dehydration (fountain + toilet)"
                 }
               ]
             }
